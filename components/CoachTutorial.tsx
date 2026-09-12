@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   X, ArrowRight, ArrowLeft, Zap, LayoutDashboard, Clock,
-  Users, Megaphone, Crosshair, ShieldCheck, BookOpen
+  Users, Megaphone, Crosshair, BookOpen
 } from 'lucide-react';
 
 const STORAGE_KEY = 'piobyte_coach_tutorial_v1';
@@ -21,7 +21,7 @@ const STEPS: TutorialStep[] = [
     label: 'Welcome',
     title: "Coach view — full access unlocked",
     body:
-      "As a Coach you have access to every feature in PIO-BYTES Hub. This quick tour covers the tools you'll rely on most. Dismiss any step with the X, or skip the whole tour — you can replay it anytime from the Help button in the sidebar.",
+      "As a Coach you have access to every feature in ManeFrame Hub. This quick tour covers the tools you'll rely on most. Dismiss any step with the X, or skip the whole tour — you can replay it anytime from the Help button in the sidebar.",
   },
   {
     icon: <LayoutDashboard size={28} className="text-blue-500" />,
@@ -62,27 +62,18 @@ const STEPS: TutorialStep[] = [
   {
     icon: <Crosshair size={28} className="text-teamColor" />,
     label: 'Scout',
-    title: "FRC scouting + TBA / Nexus live feeds",
+    title: "FTC scouting + TOA / Nexus live feeds",
     body:
-      "The Scout module tracks pit specs, match scouting, and pulls live rankings from The Blue Alliance and Nexus. Use Pit Display for a 4K-optimized live view at competitions — it shows upcoming matches, pit maps, and team rankings side by side.",
+      "The Scout module tracks pit specs, match scouting, and pulls live rankings from The Orange Alliance and Nexus. Use Pit Display for a 4K-optimized live view at competitions — it shows upcoming matches, pit maps, and team rankings side by side.",
     route: '/scout',
     routeLabel: 'Open Scout',
-  },
-  {
-    icon: <ShieldCheck size={28} className="text-teal-500" />,
-    label: 'Certifications',
-    title: "Define and grant certifications",
-    body:
-      "Create certifications (e.g. Drill Press, Lathe, Wiring), grant them to members, and require specific certs before a task can be started. Certifications are grouped by department and level (1-3), and levels unlock in order. Members submit requests and Trainers scoped to that department and level process them step by step. Finishing every certification in a level earns that badge.",
-    route: '/certifications',
-    routeLabel: 'Open Certifications',
   },
   {
     icon: <BookOpen size={28} className="text-slate-500" />,
     label: 'Resources & Calendar',
     title: "Shared links and team schedule",
     body:
-      "Resources is a curated, searchable hub of FRC links (vendors, software, training docs) — any member can add links, coaches can pin the most important ones. Calendar keeps shop sessions, competitions, meetings, and outreach in one place, with TBA import for competition dates.",
+      "Resources is a curated, searchable hub of FTC links (vendors, software, training docs) — any member can add links, coaches can pin the most important ones. Calendar keeps shop sessions, competitions, meetings, and outreach in one place, with TOA import for competition dates.",
   },
 ];
 

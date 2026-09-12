@@ -26,11 +26,11 @@ export interface TeamSettingsData {
 
 export const DEFAULT_TEAM_SETTINGS: TeamSettingsData = {
   id: 1,
-  teamNumber: 10991,
-  teamName: 'piobyte',
-  themeColor: '#dc2626',
+  teamNumber: 31130,
+  teamName: 'ManeFrame',
+  themeColor: '#4169e1',
   logoUrl: null,
-  teamProgram: 'FRC',
+  teamProgram: 'FTC',
   timezone: 'America/Los_Angeles',
   departments: [
     { name: 'Mechanical', color: '#f97316' },

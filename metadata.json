@@ -1,5 +1,5 @@
 {
-  "name": "FIRST Robotics Project Hub (FRC-PH)",
-  "description": "A comprehensive project management system for FRC teams with department-specific Kanban boards, task dependencies, and activity tracking.",
+  "name": "ManeFrame Hub",
+  "description": "Team management hub for FTC team 31130 ManeFrame — department Kanban boards, task dependencies, scouting, scheduling, and activity tracking.",
   "requestFramePermissions": []
 }

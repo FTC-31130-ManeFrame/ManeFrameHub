@@ -78,7 +78,7 @@ export function buildCalendarFeed(events: CalendarEvent[], teamName: string, tea
     // a bare, unresolvable label — without it, a weekly recurring event's
     // wall-clock time would drift by an hour across the DST boundary.
     timezone: { name: teamTimezone, generator: getVtimezoneComponent },
-    prodId: { company: "PioByte", product: "PioByte Hub Calendar Feed" },
+    prodId: { company: "ManeFrame", product: "ManeFrame Hub Calendar Feed" },
   });
 
   const parents = events.filter((e) => !e.parentEventId);
@@ -106,7 +106,7 @@ export function buildCalendarFeed(events: CalendarEvent[], teamName: string, tea
     }
 
     calendar.createEvent({
-      id: `event-${ev.id}@piobyte-hub`,
+      id: `event-${ev.id}@maneframe-hub`,
       start,
       end,
       allDay,
@@ -132,7 +132,7 @@ export function buildCalendarFeed(events: CalendarEvent[], teamName: string, tea
       : (allDay ? parseLocalDate(ev.instanceDate!) : wallClock(ev.instanceDate!, ev.startTime || "00:00"));
 
     calendar.createEvent({
-      id: `event-${ev.parentEventId}@piobyte-hub`,
+      id: `event-${ev.parentEventId}@maneframe-hub`,
       recurrenceId,
       start,
       end,

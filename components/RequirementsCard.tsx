@@ -1,9 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { Target, DollarSign, Clock } from 'lucide-react';
+import { Target, Clock } from 'lucide-react';
 import { api } from '../services/api';
 import { CategoryBadge } from './hourCategoryStyles';
 
-const fmtMoney = (cents: number) => `$${(cents / 100).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
 const fmtHours = (mins: number) => {
   const h = Math.floor(mins / 60), m = mins % 60;
   return m ? `${h}h ${m}m` : `${h}h`;
@@ -33,9 +32,8 @@ const RequirementsCard: React.FC<{ className?: string }> = ({ className = '' }) 
   }, []);
 
   if (!loaded || !data) return null;
-  const fundraisingOn = data.fundraising?.enabled;
   const hourReqs = (data.hours || []).filter((h: any) => (h.phases || []).length > 0);
-  if (!fundraisingOn && hourReqs.length === 0) return null; // nothing configured → hide
+  if (hourReqs.length === 0) return null; // nothing configured → hide
 
   return (
     <div className={`bg-white dark:bg-slate-800 rounded-2xl md:rounded-[28px] border-2 border-slate-100 dark:border-slate-700 p-5 flex flex-col gap-4 ${className}`}>
@@ -48,26 +46,6 @@ const RequirementsCard: React.FC<{ className?: string }> = ({ className = '' }) 
       </div>
 
       <div className="flex-1 min-h-0 overflow-auto kanban-scroll space-y-3.5 -mr-1 pr-1">
-        {fundraisingOn && (() => {
-          const f = data.fundraising;
-          const p = pct(f.raisedCents, f.goalCents);
-          const done = f.goalCents > 0 && f.raisedCents >= f.goalCents;
-          return (
-            <div className="space-y-1.5">
-              <div className="flex items-center gap-1.5 text-[10px] font-black text-slate-400 uppercase tracking-widest"><DollarSign size={11} /> Fundraising</div>
-              <Bar
-                label="Raised"
-                value={`${fmtMoney(f.raisedCents)} of ${fmtMoney(f.goalCents)}`}
-                percent={p}
-                done={done}
-              />
-              {f.pendingCents > 0 && (
-                <p className="text-[10px] text-amber-600 dark:text-amber-400 font-bold">+{fmtMoney(f.pendingCents)} pending verification</p>
-              )}
-            </div>
-          );
-        })()}
-
         {hourReqs.map((h: any) => {
           // Only show per-bar area badges when phases actually differ — a
           // uniform requirement (the common case) doesn't need the extra noise.

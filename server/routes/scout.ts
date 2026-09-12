@@ -270,7 +270,7 @@ async function sendScoutCsv(eventId: number, res: any) {
   const matchFields = await resolveTemplateFields(event, 'match');
 
   const rows: string[] = [];
-  rows.push(`PioByte Hub Scout Export — ${csvCell(event.name)}`);
+  rows.push(`ManeFrame Hub Scout Export — ${csvCell(event.name)}`);
   rows.push(`Exported,${new Date().toISOString()}`);
   rows.push('');
 

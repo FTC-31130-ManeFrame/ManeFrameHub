@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { NavLink } from 'react-router-dom';
-import { LayoutDashboard, Kanban, Users, LogOut, Home as HomeIcon, Cloud, CloudOff, Menu, X, Clock, TrendingUp, Activity, AlertTriangle, Flag, Crosshair, Moon, Sun, Bell, BellRing, BellOff, Trash2, Plus, ShieldCheck, CalendarDays, BookOpen, Settings, DollarSign } from 'lucide-react';
+import { LayoutDashboard, Kanban, Users, LogOut, Home as HomeIcon, Cloud, CloudOff, Menu, X, Clock, TrendingUp, Activity, AlertTriangle, Flag, Crosshair, Moon, Sun, Bell, BellRing, BellOff, Trash2, Plus, CalendarDays, BookOpen, Settings } from 'lucide-react';
 import { getPushStatus, enablePush, disablePush, type PushStatus } from '../services/push';
 import { api } from '../services/api';
 import TeamLogo from './TeamLogo';
@@ -193,10 +193,8 @@ const Layout: React.FC<LayoutProps> = ({ children, user, notificationsCount, onL
           {!isGuest && <NavItem to="/time" icon={<Clock size={16} />} label="TIME" collapsed={collapsed} onClick={() => setMobileMenuOpen(false)} />}
           <NavItem to="/scout" icon={<Crosshair size={16} />} label="EVENTS" collapsed={collapsed} onClick={() => setMobileMenuOpen(false)} />
           {!isGuest && <NavItem to="/team" icon={<Users size={16} />} label="TEAM" collapsed={collapsed} onClick={() => setMobileMenuOpen(false)} />}
-          {!isGuest && <NavItem to="/certifications" icon={<ShieldCheck size={16} />} label="CERTIFICATIONS" collapsed={collapsed} onClick={() => setMobileMenuOpen(false)} />}
           {!isGuest && <NavItem to="/calendar" icon={<CalendarDays size={16} />} label="CALENDAR" collapsed={collapsed} onClick={() => setMobileMenuOpen(false)} />}
           {!isGuest && <NavItem to="/resources" icon={<BookOpen size={16} />} label="RESOURCES" collapsed={collapsed} onClick={() => setMobileMenuOpen(false)} />}
-          {!isGuest && <NavItem to="/fundraising" icon={<DollarSign size={16} />} label="FUNDRAISING" collapsed={collapsed} onClick={() => setMobileMenuOpen(false)} />}
           {isCoachOrCaptain && (
             <NavItem to="/control-panel" icon={<Settings size={16} />} label="CONTROL PANEL" collapsed={collapsed} onClick={() => setMobileMenuOpen(false)} />
           )}

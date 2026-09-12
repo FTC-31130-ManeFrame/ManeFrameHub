@@ -44,13 +44,8 @@ const KanbanBoard: React.FC<KanbanBoardProps> = ({ state, onUpdateTask, onDelete
   const [blockReasonInput, setBlockReasonInput] = useState('');
 
   const [mobileStatus, setMobileStatus] = useState<TaskStatus>(TaskStatus.Backlog);
-  const [certifications, setCertifications] = useState<any[]>([]);
   const [showArchived, setShowArchived] = useState(false);
   const [showOverview, setShowOverview] = useState(false);
-
-  useEffect(() => {
-    api.certifications.getAll().then(setCertifications).catch(() => {});
-  }, []);
 
   const isCoachOnly = state.currentUser?.roles.some(r => r === Role.Coach);
 
@@ -414,7 +409,6 @@ const KanbanBoard: React.FC<KanbanBoardProps> = ({ state, onUpdateTask, onDelete
                 <TaskCard 
                   key={task.id} 
                   task={task} 
-                  certName={task.requiredCertificationId ? certifications.find(c => c.id === task.requiredCertificationId)?.name : undefined}
                   hasUnmetDeps={tasksWithUnmetDeps.has(task.id)}
                   onClick={() => setSelectedTask(task)}
                   onToggleHelp={(e) => toggleHelp(task, e)}
@@ -452,7 +446,6 @@ const KanbanBoard: React.FC<KanbanBoardProps> = ({ state, onUpdateTask, onDelete
                       <TaskCard 
                         key={task.id} 
                         task={task} 
-                        certName={task.requiredCertificationId ? certifications.find(c => c.id === task.requiredCertificationId)?.name : undefined}
                         hasUnmetDeps={tasksWithUnmetDeps.has(task.id)}
                         onClick={() => setSelectedTask(task)}
                         onToggleHelp={(e) => toggleHelp(task, e)}
@@ -686,12 +679,11 @@ const KanbanBoard: React.FC<KanbanBoardProps> = ({ state, onUpdateTask, onDelete
 
 const TaskCard: React.FC<{ 
     task: Task; 
-    certName?: string;
     hasUnmetDeps?: boolean;
     onClick: () => void; 
     onToggleHelp: (e: React.MouseEvent) => void;
     onDragStart: (e: React.DragEvent) => void 
-}> = ({ task, certName, hasUnmetDeps, onClick, onToggleHelp, onDragStart }) => {
+}> = ({ task, hasUnmetDeps, onClick, onToggleHelp, onDragStart }) => {
     const primaryDept = task.departments[0] as Department | undefined;
     const deptBorder = primaryDept ? DEPT_BORDER_COLORS[primaryDept] : '';
     return (
@@ -722,13 +714,8 @@ const TaskCard: React.FC<{
             <h4 className="text-[10px] md:text-xs font-black text-slate-900 dark:text-white leading-tight mb-1.5 uppercase tracking-tight group-hover:text-red-600 transition-colors line-clamp-2">
                 {task.title}
             </h4>
-            {(certName || hasUnmetDeps || task.deptOnly) && (
+            {(hasUnmetDeps || task.deptOnly) && (
                 <div className="flex items-center flex-wrap gap-1 mb-1.5">
-                    {certName && (
-                        <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-amber-100 dark:bg-amber-900/40 border border-amber-300 dark:border-amber-700 rounded text-[6px] md:text-[7px] font-black text-amber-700 dark:text-amber-400 uppercase tracking-tight">
-                            🛡 Requires: {certName}
-                        </span>
-                    )}
                     {hasUnmetDeps && (
                         <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded text-[6px] md:text-[7px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-tight">
                             <Link2 size={7} /> Waiting on deps

@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { X, Calendar, Plus, MessageSquare, History as HistoryIcon, Trash2, CheckCircle, BarChart3, AtSign, LifeBuoy, AlertTriangle, Clock, Search, ShieldCheck, Lock, ChevronDown, Link2 } from 'lucide-react';
+import { X, Calendar, Plus, MessageSquare, History as HistoryIcon, Trash2, CheckCircle, BarChart3, AtSign, LifeBuoy, AlertTriangle, Clock, Search, Link2 } from 'lucide-react';
 import { getUnmetDepNames } from '../utils/deps';
 import { todayLocalStr, parseLocalDate } from '../utils/dates';
 import { Task, TaskStatus, Priority, Department, User, Activity, Comment, Role, SuccessCriterion } from '../types';
@@ -35,7 +35,6 @@ const taskSignature = (t: Task): string => JSON.stringify({
   completedAt: t.completedAt ?? null,
   deptOnly: !!t.deptOnly,
   blockedReason: t.blockedReason ?? '',
-  requiredCertificationId: t.requiredCertificationId ?? null,
   departments: [...(t.departments || [])].sort(),
   assignees: [...(t.assignees || [])].map(String).sort(),
   dependencies: [...(t.dependencies || [])].map(String).sort(),
@@ -75,11 +74,6 @@ const TaskModal: React.FC<TaskModalProps> = ({ task, users, allTasks, currentUse
   const [mentionFilter, setMentionFilter] = useState<string | null>(null);
   const [assigneeSearch, setAssigneeSearch] = useState('');
   const commentInputRef = useRef<HTMLTextAreaElement>(null);
-  const [certifications, setCertifications] = useState<any[]>([]);
-  const [certifiedUserIds, setCertifiedUserIds] = useState<Set<number>>(new Set());
-  const [certPickerSearch, setCertPickerSearch] = useState('');
-  const [showCertPicker, setShowCertPicker] = useState(false);
-  const certPickerRef = useRef<HTMLDivElement>(null);
   const [depSearch, setDepSearch] = useState('');
   const [showCloseConfirm, setShowCloseConfirm] = useState(false);
 
@@ -99,31 +93,6 @@ const TaskModal: React.FC<TaskModalProps> = ({ task, users, allTasks, currentUse
     if (isDirty) setShowCloseConfirm(true);
     else onClose();
   };
-
-  useEffect(() => {
-    api.certifications.getAll().then(setCertifications).catch(() => {});
-  }, []);
-
-  useEffect(() => {
-    if (!showCertPicker) return;
-    const handler = (e: MouseEvent) => {
-      if (certPickerRef.current && !certPickerRef.current.contains(e.target as Node)) {
-        setShowCertPicker(false);
-      }
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [showCertPicker]);
-
-  useEffect(() => {
-    if (editedTask.requiredCertificationId) {
-      api.certifications.getCertifiedUsers(editedTask.requiredCertificationId)
-        .then(users => setCertifiedUserIds(new Set(users.map((u: any) => u.id))))
-        .catch(() => setCertifiedUserIds(new Set()));
-    } else {
-      setCertifiedUserIds(new Set());
-    }
-  }, [editedTask.requiredCertificationId]);
 
   const filteredUsersForAssignment = useMemo(() => {
     let filtered = users;
@@ -687,75 +656,6 @@ const TaskModal: React.FC<TaskModalProps> = ({ task, users, allTasks, currentUse
             </div>
 
             <div>
-              <label className="block text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-3 ml-1">Required Certification</label>
-              <div className="relative" ref={certPickerRef}>
-                <button
-                  type="button"
-                  onClick={() => { setShowCertPicker(v => !v); setCertPickerSearch(''); }}
-                  className="w-full flex items-center gap-2 pl-3 pr-4 py-3 bg-slate-50 dark:bg-slate-700 border-2 border-slate-100 dark:border-slate-600 rounded-xl text-sm font-medium outline-none focus:border-amber-500 transition-colors dark:text-white text-left"
-                >
-                  <ShieldCheck size={14} className="text-amber-500 flex-shrink-0" />
-                  <span className={`flex-1 truncate ${!editedTask.requiredCertificationId ? 'text-slate-400 dark:text-slate-500' : ''}`}>
-                    {editedTask.requiredCertificationId
-                      ? (() => { const c = certifications.find((c: any) => c.id === editedTask.requiredCertificationId); return c ? `${c.name}${c.equipment ? ` — ${c.equipment}` : ''}` : 'Unknown'; })()
-                      : 'None (no certification required)'}
-                  </span>
-                  <ChevronDown size={14} className={`flex-shrink-0 text-slate-400 transition-transform ${showCertPicker ? 'rotate-180' : ''}`} />
-                </button>
-                {showCertPicker && (
-                  <div className="absolute top-full left-0 right-0 mt-1 bg-white dark:bg-slate-800 border-2 border-slate-100 dark:border-slate-600 rounded-xl shadow-xl z-50 overflow-hidden">
-                    <div className="p-2 border-b border-slate-100 dark:border-slate-700">
-                      <div className="relative">
-                        <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
-                        <input
-                          autoFocus
-                          value={certPickerSearch}
-                          onChange={(e) => setCertPickerSearch(e.target.value)}
-                          placeholder="Search certifications..."
-                          className="w-full pl-8 pr-3 py-2 bg-slate-50 dark:bg-slate-700 rounded-lg text-xs font-medium outline-none dark:text-white"
-                        />
-                      </div>
-                    </div>
-                    <div className="max-h-48 overflow-auto">
-                      <button
-                        type="button"
-                        onClick={() => { setEditedTask({ ...editedTask, requiredCertificationId: undefined }); setShowCertPicker(false); }}
-                        className={`w-full text-left px-4 py-2.5 text-xs font-bold hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors ${!editedTask.requiredCertificationId ? 'bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400' : 'text-slate-500 dark:text-slate-400'}`}
-                      >
-                        None (no certification required)
-                      </button>
-                      {certifications
-                        .filter((c: any) => {
-                          const s = certPickerSearch.toLowerCase();
-                          return !s || c.name?.toLowerCase().includes(s) || c.equipment?.toLowerCase().includes(s);
-                        })
-                        .map((c: any) => (
-                          <button
-                            key={c.id}
-                            type="button"
-                            onClick={() => { setEditedTask({ ...editedTask, requiredCertificationId: c.id }); setShowCertPicker(false); }}
-                            className={`w-full text-left px-4 py-2.5 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors ${editedTask.requiredCertificationId === c.id ? 'bg-amber-50 dark:bg-amber-900/20' : ''}`}
-                          >
-                            <p className={`text-xs font-black uppercase tracking-tight ${editedTask.requiredCertificationId === c.id ? 'text-amber-700 dark:text-amber-400' : 'text-slate-700 dark:text-slate-300'}`}>{c.name}</p>
-                            {c.equipment && <p className="text-[9px] text-slate-400 dark:text-slate-500 font-medium mt-0.5">{c.equipment}</p>}
-                          </button>
-                        ))
-                      }
-                      {certifications.filter((c: any) => { const s = certPickerSearch.toLowerCase(); return !s || c.name?.toLowerCase().includes(s) || c.equipment?.toLowerCase().includes(s); }).length === 0 && (
-                        <p className="text-center text-slate-400 text-xs py-3 font-medium">No certifications found</p>
-                      )}
-                    </div>
-                  </div>
-                )}
-              </div>
-              {editedTask.requiredCertificationId && (
-                <p className="text-[9px] text-amber-600 dark:text-amber-400 font-bold mt-1.5 ml-1 flex items-center gap-1">
-                  <ShieldCheck size={9} /> Only certified members can be assigned
-                </p>
-              )}
-            </div>
-
-            <div>
               <label className="block text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-3 ml-1">Authorized Units</label>
               <div className="relative mb-3">
                 <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500" />
@@ -773,90 +673,35 @@ const TaskModal: React.FC<TaskModalProps> = ({ task, users, allTasks, currentUse
               <div className="space-y-2 max-h-48 overflow-auto kanban-scroll pr-2">
                 {filteredUsersForAssignment.length === 0 ? (
                   <p className="text-center text-slate-400 dark:text-slate-500 text-xs font-bold py-4">No matching users found</p>
-                ) : (() => {
-                    const isCertRequired = !!editedTask.requiredCertificationId;
-                    const equipmentName = isCertRequired
-                      ? certifications.find((c: any) => c.id === editedTask.requiredCertificationId)?.equipment || 'this equipment'
-                      : '';
-                    const certifiedUsers = isCertRequired
-                      ? filteredUsersForAssignment.filter(u => certifiedUserIds.has(parseInt(u.id)))
-                      : filteredUsersForAssignment;
-                    const uncertifiedUsers = isCertRequired
-                      ? filteredUsersForAssignment.filter(u => !certifiedUserIds.has(parseInt(u.id)))
-                      : [];
-
-                    const renderUser = (u: any) => {
-                      const isCertified = !isCertRequired || certifiedUserIds.has(parseInt(u.id));
-                      const isAssigned = editedTask.assignees.includes(u.id);
-                      const isAssignedUncertified = isAssigned && !isCertified;
-                      return (
-                        <button
-                          key={u.id}
-                          onClick={() => {
-                            if (!isCertified && !isAssigned) return;
-                            const newAssignees = isAssigned
-                              ? editedTask.assignees.filter(id => id !== u.id)
-                              : [...editedTask.assignees, u.id];
-                            setEditedTask({...editedTask, assignees: newAssignees});
-                          }}
-                          title={!isCertified && !isAssigned ? `${u.name} is not certified for ${equipmentName} — they cannot be assigned` : isAssignedUncertified ? `${u.name} is assigned but lacks ${equipmentName} certification — click to unassign` : ''}
-                          className={`w-full flex items-center gap-4 p-4 rounded-[20px] text-[10px] font-black border-2 transition-all uppercase tracking-tight ${
-                            isAssigned && isCertified
-                              ? 'bg-teamColor/5 dark:bg-teamColor/10 border-teamColor/20 dark:border-teamColor text-teamColor shadow-sm'
-                              : isAssignedUncertified
-                              ? 'bg-amber-50 dark:bg-amber-900/20 border-amber-400 dark:border-amber-600 text-amber-700 dark:text-amber-400'
-                              : !isCertified
-                              ? 'bg-slate-50 dark:bg-slate-800/50 border-slate-100 dark:border-slate-700/50 text-slate-300 dark:text-slate-600 cursor-not-allowed opacity-60'
-                              : 'bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 text-slate-400 dark:text-slate-500 hover:border-slate-200 dark:hover:border-slate-600'
-                          }`}
-                        >
-                          <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-[10px] font-black ${isAssigned && isCertified ? 'bg-teamColor text-white' : isAssignedUncertified ? 'bg-amber-500 text-white' : !isCertified ? 'bg-slate-200 dark:bg-slate-700 text-slate-400 dark:text-slate-500' : 'bg-slate-950 dark:bg-slate-900 text-white'}`}>
-                            {u.name[0]}
-                          </div>
-                          <div className="text-left flex-1">
-                            <p className="tracking-tight">{u.name}</p>
-                            <p className="text-[8px] opacity-50 font-bold">@{u.username}</p>
-                            {isAssignedUncertified && (
-                              <p className="text-[8px] text-amber-600 dark:text-amber-400 font-bold mt-0.5 flex items-center gap-0.5 normal-case">
-                                <AlertTriangle size={7} /> Not certified for {equipmentName}
-                              </p>
-                            )}
-                          </div>
-                          {isCertRequired && (
-                            <div className="flex-shrink-0">
-                              {isCertified
-                                ? <ShieldCheck size={12} className="text-green-500" />
-                                : <Lock size={12} className={isAssignedUncertified ? 'text-amber-500' : 'text-slate-300 dark:text-slate-600'} />
-                              }
-                            </div>
-                          )}
-                        </button>
-                      );
-                    };
-
+                ) : (
+                  filteredUsersForAssignment.map(u => {
+                    const isAssigned = editedTask.assignees.includes(u.id);
                     return (
-                      <>
-                        {isCertRequired && certifiedUsers.length > 0 && (
-                          <>
-                            <p className="text-[8px] font-black text-green-600 dark:text-green-400 uppercase tracking-widest px-1 pt-1 flex items-center gap-1">
-                              <ShieldCheck size={8} /> Certified
-                            </p>
-                            {certifiedUsers.map(renderUser)}
-                          </>
-                        )}
-                        {isCertRequired && uncertifiedUsers.length > 0 && (
-                          <>
-                            <p className="text-[8px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest px-1 pt-2 flex items-center gap-1">
-                              <Lock size={8} /> Not Certified
-                            </p>
-                            {uncertifiedUsers.map(renderUser)}
-                          </>
-                        )}
-                        {!isCertRequired && filteredUsersForAssignment.map(renderUser)}
-                      </>
+                      <button
+                        key={u.id}
+                        onClick={() => {
+                          const newAssignees = isAssigned
+                            ? editedTask.assignees.filter(id => id !== u.id)
+                            : [...editedTask.assignees, u.id];
+                          setEditedTask({...editedTask, assignees: newAssignees});
+                        }}
+                        className={`w-full flex items-center gap-4 p-4 rounded-[20px] text-[10px] font-black border-2 transition-all uppercase tracking-tight ${
+                          isAssigned
+                            ? 'bg-teamColor/5 dark:bg-teamColor/10 border-teamColor/20 dark:border-teamColor text-teamColor shadow-sm'
+                            : 'bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 text-slate-400 dark:text-slate-500 hover:border-slate-200 dark:hover:border-slate-600'
+                        }`}
+                      >
+                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-[10px] font-black ${isAssigned ? 'bg-teamColor text-white' : 'bg-slate-950 dark:bg-slate-900 text-white'}`}>
+                          {u.name[0]}
+                        </div>
+                        <div className="text-left flex-1">
+                          <p className="tracking-tight">{u.name}</p>
+                          <p className="text-[8px] opacity-50 font-bold">@{u.username}</p>
+                        </div>
+                      </button>
                     );
-                  })()
-                }
+                  })
+                )}
               </div>
             </div>
 

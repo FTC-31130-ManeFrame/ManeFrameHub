@@ -65,7 +65,7 @@ async function applyInvites(eventId: number, eventTitle: string, invitees: numbe
     }).catch((e) => console.error("createNotification (invite):", e))
   ));
   sendPushToUsers(added, {
-    title: actor?.name ? `${actor.name} • PioByte Hub` : "PioByte Hub",
+    title: actor?.name ? `${actor.name} • ManeFrame Hub` : "ManeFrame Hub",
     body: `You've been invited to "${eventTitle}"`,
     url: "/#/calendar",
     tag: `event-invite-${eventId}`,

@@ -5,7 +5,7 @@ import { eq, inArray } from "drizzle-orm";
 
 const VAPID_PUBLIC = process.env.VAPID_PUBLIC_KEY || "";
 const VAPID_PRIVATE = process.env.VAPID_PRIVATE_KEY || "";
-const VAPID_SUBJECT = process.env.VAPID_SUBJECT || "mailto:admin@piobyte.local";
+const VAPID_SUBJECT = process.env.VAPID_SUBJECT || "mailto:admin@maneframe.local";
 
 export const pushConfigured = Boolean(VAPID_PUBLIC && VAPID_PRIVATE);
 

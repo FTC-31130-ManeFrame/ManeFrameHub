@@ -86,7 +86,7 @@ export async function toaFetch(path: string) {
   const resp = await fetch(`${TOA_BASE}${path}`, {
     headers: {
       "X-TOA-Key": toa,
-      "X-Application-Origin": "PioByteHub",
+      "X-Application-Origin": "ManeFrameHub",
     },
   });
   if (!resp.ok) {

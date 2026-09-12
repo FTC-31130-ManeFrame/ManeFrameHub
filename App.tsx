@@ -20,10 +20,8 @@ const KanbanBoard = lazy(() => import('./components/KanbanBoard'));
 const TeamManagement = lazy(() => import('./components/TeamManagement'));
 const TimeTracking = lazy(() => import('./components/TimeTracking'));
 const Scout = lazy(() => import('./components/Scout'));
-const Certifications = lazy(() => import('./components/Certifications'));
 const Calendar = lazy(() => import('./components/Calendar'));
 const Resources = lazy(() => import('./components/Resources'));
-const Fundraising = lazy(() => import('./components/Fundraising'));
 
 const PageLoader = () => (
   <div className="flex items-center justify-center min-h-[60vh]">
@@ -644,11 +642,9 @@ const App: React.FC = () => {
               <Route path="/scout" element={
                 <Scout currentUser={state.currentUser} />
               } />
-              {/* Old bookmarks and the coach tutorial still point at #/safety. */}
-              <Route path="/safety" element={<Navigate to="/certifications" replace />} />
-              <Route path="/certifications" element={isGuest ? <Navigate to="/scout" replace /> :
-                <Certifications currentUser={state.currentUser} />
-              } />
+              {/* Certifications is retired — old bookmarks still point at #/safety and #/certifications. */}
+              <Route path="/safety" element={<Navigate to="/" replace />} />
+              <Route path="/certifications" element={<Navigate to="/" replace />} />
               <Route path="/team" element={isGuest ? <Navigate to="/scout" replace /> :
                 <TeamManagement 
                   state={state}
@@ -670,12 +666,11 @@ const App: React.FC = () => {
               } />
               <Route path="/calendar" element={isGuest ? <Navigate to="/scout" replace /> : <Calendar currentUser={state.currentUser} />} />
               <Route path="/resources" element={isGuest ? <Navigate to="/scout" replace /> : <Resources currentUser={state.currentUser} users={state.users} />} />
-              <Route path="/fundraising" element={isGuest ? <Navigate to="/scout" replace /> : <Fundraising currentUser={state.currentUser} users={state.users} />} />
+              <Route path="/fundraising" element={<Navigate to="/" replace />} />
               <Route path="/control-panel" element={isGuest ? <Navigate to="/scout" replace /> :
                 <ControlPanel
                   currentUserRoles={state.currentUser?.roles || []}
                   currentUserId={state.currentUser?.id || null}
-                  users={state.users}
                 />
               } />
               <Route path="*" element={<Navigate to={isGuest ? "/scout" : "/"} />} />

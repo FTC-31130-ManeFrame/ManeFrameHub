@@ -5,17 +5,15 @@ import { useTeamSettings, TeamSettingsData, DEFAULT_TEAM_SETTINGS, DepartmentSet
 import { api } from '../services/api';
 import RequirementsSettings from './RequirementsSettings';
 import BadgeSettings from './BadgeSettings';
-import TrainerScopeSettings from './TrainerScopeSettings';
 import type { DepartmentChangeSet, DepartmentUsageMap } from '../shared/departments';
-import type { User } from '../types';
 
 interface ControlPanelProps {
   currentUserRoles: string[];
   currentUserId: string | null;
-  users: User[];
 }
 
 const THEME_PRESETS = [
+  { label: 'Royal Blue', color: '#4169e1' },
   { label: 'Red', color: '#dc2626' },
   { label: 'Blue', color: '#2563eb' },
   { label: 'Green', color: '#16a34a' },
@@ -76,7 +74,7 @@ const SectionCard: React.FC<{ title: string; subtitle?: string; children: React.
   </div>
 );
 
-const ControlPanel: React.FC<ControlPanelProps> = ({ currentUserRoles, currentUserId, users }) => {
+const ControlPanel: React.FC<ControlPanelProps> = ({ currentUserRoles, currentUserId }) => {
   const { settings, setSettings } = useTeamSettings();
 
   const isCoachOrCaptain = currentUserRoles.some(r =>
@@ -473,7 +471,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({ currentUserRoles, currentUs
                 value={form.teamName}
                 onChange={e => setForm(f => ({ ...f, teamName: e.target.value }))}
                 className="w-full px-3 py-2 text-sm font-bold border border-slate-200 dark:border-slate-600 rounded-xl bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2"
-                placeholder="piobyte"
+                placeholder="ManeFrame"
               />
             </div>
           </div>
@@ -642,7 +640,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({ currentUserRoles, currentUs
         </div>
       </SectionCard>
 
-      <SectionCard title="Requirements" subtitle="Fundraising goal and per-category hour requirements shown on each student's home dashboard.">
+      <SectionCard title="Requirements" subtitle="Per-category hour requirements shown on each student's home dashboard.">
         <RequirementsSettings currentUserId={currentUserId} />
       </SectionCard>
 
@@ -751,11 +749,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({ currentUserRoles, currentUs
         </div>
       </SectionCard>
 
-      <SectionCard title="Trainers" subtitle="Who can sign off certifications, by department and level. Coaches can sign off everything.">
-        <TrainerScopeSettings users={users} />
-      </SectionCard>
-
-      <SectionCard title="Badges" subtitle="Custom badges you can award by hand. Level badges are earned automatically by finishing every certification in a department and level.">
+      <SectionCard title="Badges" subtitle="Custom badges you can award by hand from Team Management.">
         <BadgeSettings />
       </SectionCard>
 

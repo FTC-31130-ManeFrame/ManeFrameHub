@@ -3,8 +3,8 @@
 @tailwind utilities;
 
 :root {
-  --team-color: #dc2626;
-  --team-color-rgb: 220, 38, 38;
+  --team-color: #4169e1;
+  --team-color-rgb: 65, 105, 225;
 }
 
 body { font-family: 'Inter', sans-serif; }

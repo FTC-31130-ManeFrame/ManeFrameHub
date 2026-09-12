@@ -112,14 +112,14 @@ if (isProduction && !SESSION_SECRET) {
 app.get("/manifest.json", async (req, res) => {
   try {
     const settings = await storage.getTeamSettings();
-    const name = (settings.teamName as string) || 'PioByte Hub';
-    const color = (settings.themeColor as string) || '#dc2626';
+    const name = (settings.teamName as string) || 'ManeFrame Hub';
+    const color = (settings.themeColor as string) || '#4169e1';
     res.setHeader('Content-Type', 'application/manifest+json');
     res.setHeader('Cache-Control', 'no-cache');
     res.json({
       name,
       short_name: name,
-      description: `FRC Team ${settings.teamNumber} Project Management & Scouting`,
+      description: `${settings.teamProgram || 'FTC'} Team ${settings.teamNumber} Project Management & Scouting`,
       start_url: "/",
       display: "standalone",
       background_color: "#0f172a",

@@ -605,9 +605,9 @@ export type InsertResource = typeof resources.$inferInsert;
 
 export const teamSettings = pgTable("team_settings", {
   id: serial("id").primaryKey(),
-  teamNumber: integer("team_number").notNull().default(10991),
-  teamName: text("team_name").notNull().default("piobyte"),
-  themeColor: text("theme_color").notNull().default("#dc2626"),
+  teamNumber: integer("team_number").notNull().default(31130),
+  teamName: text("team_name").notNull().default("ManeFrame"),
+  themeColor: text("theme_color").notNull().default("#4169e1"),
   logoUrl: text("logo_url"),
   departments: jsonb("departments").$type<{ name: string; color: string }[]>().notNull().default([
     { name: 'Mechanical', color: '#f97316' },
@@ -627,7 +627,7 @@ export const teamSettings = pgTable("team_settings", {
     { name: 'Team Member', tier: 'member' },
     { name: 'Class Member', tier: 'member' },
   ]),
-  teamProgram: text("team_program").notNull().default("FRC"),
+  teamProgram: text("team_program").notNull().default("FTC"),
   // Home-base IANA timezone (e.g. "America/Los_Angeles"). Business rules that
   // must stay pinned to the team regardless of viewer (hours-day bucketing,
   // the calendar subscription feed) use this; personal display of instants

@@ -2846,9 +2846,9 @@ export class DatabaseStorage implements IStorage {
 
   private defaultTeamSettings(): InsertTeamSettings {
     return {
-      teamNumber: 10991,
-      teamName: 'piobyte',
-      themeColor: '#dc2626',
+      teamNumber: 31130,
+      teamName: 'ManeFrame',
+      themeColor: '#4169e1',
       logoUrl: null,
       departments: [
         { name: 'Mechanical', color: '#f97316' },
