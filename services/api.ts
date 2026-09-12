@@ -4,16 +4,21 @@ import type { DepartmentUsageMap } from '../shared/departments';
 const API_BASE = '/api';
 export const AUTH_REQUIRED_EVENT = 'piobyte:auth-required';
 
+type ApiRequestOptions = RequestInit & {
+  suppressAuthEvent?: boolean;
+};
+
 export async function apiRequest<T>(
   endpoint: string,
-  options?: RequestInit
+  options?: ApiRequestOptions
 ): Promise<T> {
+  const { suppressAuthEvent = false, ...fetchOptions } = options || {};
   const response = await fetch(`${API_BASE}${endpoint}`, {
-    ...options,
+    ...fetchOptions,
     credentials: 'include', // send the session cookie
     headers: {
       'Content-Type': 'application/json',
-      ...options?.headers,
+      ...fetchOptions.headers,
     },
   });
 
@@ -26,6 +31,7 @@ export async function apiRequest<T>(
     if (
       response.status === 401 &&
       (serverMessage === 'Authentication required' || serverMessage === 'Not authenticated') &&
+      !suppressAuthEvent &&
       typeof window !== 'undefined'
     ) {
       window.dispatchEvent(new Event(AUTH_REQUIRED_EVENT));
@@ -70,7 +76,7 @@ export const api = {
         method: 'POST',
         body: JSON.stringify({ pin }),
       }),
-    me: () => apiRequest<any>('/me'),
+    me: (suppressAuthEvent = false) => apiRequest<any>('/me', { suppressAuthEvent }),
     logout: () => apiRequest<{ ok: boolean }>('/logout', { method: 'POST' }),
   },
   users: {
@@ -373,7 +379,7 @@ export const api = {
     regenerateFeedToken: () => apiRequest<{ token: string; url: string; webcalUrl: string }>('/calendar/feed-token/regenerate', { method: 'POST' }),
   },
   settings: {
-    get: () => apiRequest<any>('/settings'),
+    get: (suppressAuthEvent = false) => apiRequest<any>('/settings', { suppressAuthEvent }),
     update: (data: any) => apiRequest<any>('/settings', { method: 'PUT', body: JSON.stringify(data) }),
     reset: (requesterId: number) => apiRequest<any>('/settings/reset', { method: 'POST', body: JSON.stringify({ requesterId }) }),
     departmentUsage: () => apiRequest<DepartmentUsageMap>('/settings/department-usage'),

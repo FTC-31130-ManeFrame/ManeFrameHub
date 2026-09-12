@@ -8,3 +8,9 @@ Session cookies must support both local HTTP Preview and Replit's proxied HTTPS 
 **Why:** Replit Preview can expose the same development app through different transports, and the edge proxy may rewrite cookie attributes for HTTPS. Environment-mode-only cookie flags allowed the UI to appear logged in even when the browser omitted the session cookie on later writes.
 
 **How to apply:** When changing login, logout, proxy, workflow, or cookie behavior, test unauthenticated protection plus login, current-user restoration, and an authenticated write through both local HTTP and proxied HTTPS paths. Never log cookie values.
+
+Pre-authentication startup probes must not broadcast the global session-expired event. Only protected requests made after a session has been established should force the app back to login.
+
+**Why:** Expected 401 responses from startup identity or branding probes can otherwise show false “session expired” feedback before the user has attempted to sign in.
+
+**How to apply:** Explicitly suppress global auth-expiry handling for anonymous startup probes while preserving it for authenticated polling and writes.

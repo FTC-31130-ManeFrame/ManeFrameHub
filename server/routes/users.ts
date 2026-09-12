@@ -179,6 +179,7 @@ router.post("/login", async (req, res) => {
     }
     const { username, password } = req.body;
     if (!username || !password) {
+      console.info("[auth] login", { outcome: "missing_credentials", secure: req.secure });
       return res.status(400).json({ error: "Username and password are required" });
     }
     const normalizedUsername = String(username).toLowerCase().trim();
@@ -186,6 +187,7 @@ router.post("/login", async (req, res) => {
     const { ok, needsRehash } = await verifyPassword(String(password), user?.password);
     if (user && ok) {
       if ((user as any).archived) {
+        console.info("[auth] login", { outcome: "account_archived", secure: req.secure });
         return res.status(403).json({ error: "This account has been deactivated. Please contact your coach." });
       }
       // Lazy migration: upgrade legacy plaintext rows to a hash on first login.
@@ -198,8 +200,10 @@ router.post("/login", async (req, res) => {
       }
       const token = signSession({ kind: "member", userId: user.id, roles: (user.roles as string[]) || [] });
       res.cookie(SESSION_COOKIE, token, sessionCookieOptions(req));
+      console.info("[auth] login", { outcome: "success", secure: req.secure });
       res.json(sanitizeUser(user));
     } else {
+      console.info("[auth] login", { outcome: "invalid_credentials", secure: req.secure });
       res.status(401).json({ error: "Invalid credentials" });
     }
   } catch (error) {
@@ -230,13 +234,25 @@ router.post("/guest-login", async (req, res) => {
 // restore a session from the cookie). Guests get a lightweight guest identity.
 router.get("/me", async (req, res) => {
   try {
+    const hasSessionCookie = Boolean(req.cookies?.[SESSION_COOKIE]);
     if (req.guestEventId !== undefined) {
+      console.info("[auth] session", { outcome: "guest", hasSessionCookie, secure: req.secure });
       return res.json({ guest: true, eventId: req.guestEventId });
     }
-    if (!req.userId) return res.status(401).json({ error: "Not authenticated" });
+    if (!req.userId) {
+      console.info("[auth] session", { outcome: "missing_or_invalid", hasSessionCookie, secure: req.secure });
+      return res.status(401).json({ error: "Not authenticated" });
+    }
     const user = await storage.getUser(req.userId);
-    if (!user) return res.status(401).json({ error: "Not authenticated" });
-    if ((user as any).archived) return res.status(403).json({ error: "Account deactivated" });
+    if (!user) {
+      console.info("[auth] session", { outcome: "user_missing", hasSessionCookie, secure: req.secure });
+      return res.status(401).json({ error: "Not authenticated" });
+    }
+    if ((user as any).archived) {
+      console.info("[auth] session", { outcome: "account_archived", hasSessionCookie, secure: req.secure });
+      return res.status(403).json({ error: "Account deactivated" });
+    }
+    console.info("[auth] session", { outcome: "success", hasSessionCookie, secure: req.secure });
     res.json(sanitizeUser(user));
   } catch (error) {
     console.error("Error fetching current user:", error);

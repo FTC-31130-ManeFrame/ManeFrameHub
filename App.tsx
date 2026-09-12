@@ -49,6 +49,8 @@ const App: React.FC = () => {
   const [guestPin, setGuestPin] = useState('');
   const [guestLoginError, setGuestLoginError] = useState('');
   const [guestLoading, setGuestLoading] = useState(false);
+  const [loginError, setLoginError] = useState('');
+  const [loginLoading, setLoginLoading] = useState(false);
   const [activeTaskModal, setActiveTaskModal] = useState<Task | null>(null);
   const [isCloudSynced, setIsCloudSynced] = useState(false);
   const [showConfetti, setShowConfetti] = useState(false);
@@ -57,6 +59,7 @@ const App: React.FC = () => {
   const [globalAlerts, setGlobalAlerts] = useState<any[]>([]);
   const [annToast, setAnnToast] = useState<{ text: string; scope: string; dept?: string; authorName?: string } | null>(null);
   const lastShownAnnRef = useRef<string | null>(localStorage.getItem('lastSeenAnnouncementId'));
+  const sessionGenerationRef = useRef(0);
   const [dismissedAlertIds, setDismissedAlertIds] = useState<Set<number>>(() => {
     try {
       const stored = sessionStorage.getItem('piobyte_dismissed_alerts');
@@ -65,16 +68,22 @@ const App: React.FC = () => {
   });
 
   const clearLocalSession = useCallback(() => {
+    sessionGenerationRef.current += 1;
     setState(prev => ({ ...prev, currentUser: null }));
     setIsLoggedIn(false);
     setGuestSession(null);
+    setLoginLoading(false);
     localStorage.removeItem('frc_hub_active_user');
     localStorage.removeItem('frc_hub_guest');
   }, []);
 
   useEffect(() => {
-    window.addEventListener(AUTH_REQUIRED_EVENT, clearLocalSession);
-    return () => window.removeEventListener(AUTH_REQUIRED_EVENT, clearLocalSession);
+    const handleAuthRequired = () => {
+      clearLocalSession();
+      setLoginError(current => current || 'Your session expired. Please sign in again.');
+    };
+    window.addEventListener(AUTH_REQUIRED_EVENT, handleAuthRequired);
+    return () => window.removeEventListener(AUTH_REQUIRED_EVENT, handleAuthRequired);
   }, [clearLocalSession]);
 
   useEffect(() => {
@@ -87,6 +96,7 @@ const App: React.FC = () => {
   }, [darkMode]);
 
   const fetchData = useCallback(async () => {
+    const sessionGeneration = sessionGenerationRef.current;
     try {
       const [users, projects, tasks, notifications, announcements, timeEntries, settings] = await Promise.all([
         api.users.getAll(),
@@ -100,6 +110,7 @@ const App: React.FC = () => {
         // this session within one interval instead of needing a hard reload.
         api.settings.get(),
       ]);
+      if (sessionGeneration !== sessionGenerationRef.current) return;
       setTeamSettings(settings);
       setState(prev => ({
         ...prev,
@@ -143,7 +154,8 @@ const App: React.FC = () => {
         })),
       }));
       setIsCloudSynced(true);
-    } catch (error) {
+    } catch (error: any) {
+      if (sessionGeneration !== sessionGenerationRef.current || error?.status === 401) return;
       console.error('Failed to fetch data:', error);
       setIsCloudSynced(true);
     }
@@ -241,7 +253,7 @@ const App: React.FC = () => {
   };
 
   useEffect(() => {
-    api.settings.get().then((s: TeamSettingsData) => {
+    api.settings.get(true).then((s: TeamSettingsData) => {
       setTeamSettings(s);
     }).catch(() => {});
   }, []);
@@ -267,7 +279,7 @@ const App: React.FC = () => {
     let cancelled = false;
     (async () => {
       try {
-        const me = await api.auth.me();
+        const me = await api.auth.me(true);
         if (cancelled || !me) return;
         if (me.guest) {
           let g: any = null;
@@ -407,17 +419,29 @@ const App: React.FC = () => {
   };
 
   const handleLogin = async (username: string, password?: string) => {
+    if (loginLoading) return;
+    setLoginError('');
+    setLoginLoading(true);
     try {
       await api.auth.login(username, password || '');
       // Do not enter the authenticated UI until the browser proves it retained
       // the httpOnly cookie by sending it back on a protected request.
-      const user = await api.auth.me();
+      const user = await api.auth.me(true);
       const mappedUser = { ...user, id: String(user.id) };
+      sessionGenerationRef.current += 1;
       setState(prev => ({ ...prev, currentUser: mappedUser }));
       setIsLoggedIn(true);
       localStorage.setItem('frc_hub_active_user', mappedUser.id);
     } catch (error: any) {
-      alert(error?.message || 'Invalid credentials.');
+      setLoginError(
+        error?.status === 401 && error?.message === 'Invalid credentials'
+          ? 'The username or access key is incorrect.'
+          : error?.status === 401
+            ? 'Your login was accepted, but the browser did not retain the session. Open Preview in a new tab and try again.'
+            : error?.message || 'Unable to sign in. Please try again.'
+      );
+    } finally {
+      setLoginLoading(false);
     }
   };
 
@@ -499,8 +523,15 @@ const App: React.FC = () => {
                     <label className="block text-xs font-black uppercase tracking-[0.2em] ml-2" style={{ color: '#1e293b' }}>Access Key</label>
                     <input type="password" name="password" autoComplete="current-password" placeholder="••••••••" className="w-full p-6 border-2 border-slate-300 rounded-3xl outline-none focus:ring-4 focus:ring-teamColor/10 focus:border-teamColor transition-all font-black text-sm placeholder:text-slate-400" style={{ backgroundColor: '#ffffff', color: '#0f172a' }} />
                 </div>
-                <button type="submit" className="w-full py-6 bg-teamColor text-white font-black rounded-3xl hover:opacity-90 shadow-2xl shadow-teamColor/20 transition-all transform active:scale-95 text-xl tracking-widest uppercase">
-                    Initialize System
+                {loginError && (
+                  <div role="alert" aria-live="polite" className="rounded-2xl border border-red-200 bg-red-50 px-5 py-4 text-sm font-bold text-red-700">
+                    {loginError}
+                  </div>
+                )}
+                <button type="submit" disabled={loginLoading} className="w-full py-6 bg-teamColor text-white font-black rounded-3xl hover:opacity-90 shadow-2xl shadow-teamColor/20 transition-all transform active:scale-95 text-xl tracking-widest uppercase disabled:cursor-wait disabled:opacity-60 disabled:transform-none">
+                    {loginLoading ? (
+                      <span className="inline-flex items-center justify-center gap-3"><Loader2 size={22} className="animate-spin" /> Signing In</span>
+                    ) : 'Initialize System'}
                 </button>
               </form>
 
