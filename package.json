@@ -5,7 +5,7 @@
   "license": "SEE LICENSE IN LICENSE.md",
   "type": "module",
   "scripts": {
-    "dev": "concurrently \"tsx server/index.ts\" \"vite\" \"tailwindcss -i ./index.css -o ./public/tailwind.css --watch\"",
+    "dev": "NODE_ENV=development concurrently \"tsx server/index.ts\" \"vite\" \"tailwindcss -i ./index.css -o ./public/tailwind.css --watch\"",
     "server": "tsx server/index.ts",
     "client": "vite",
     "build:css": "tailwindcss -i ./index.css -o ./public/tailwind.css --minify",
