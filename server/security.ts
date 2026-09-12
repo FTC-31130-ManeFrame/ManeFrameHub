@@ -43,25 +43,50 @@ const onReplit = Boolean(
   process.env.REPL_ID || process.env.REPLIT_DEV_DOMAIN || process.env.REPLIT_DOMAINS,
 );
 
+type CookieReq = Pick<Request, "secure"> & { get?(header: string): string | undefined };
+
+/**
+ * Did the *browser* reach us over HTTPS? That, not our own NODE_ENV, decides
+ * whether we may set Secure — and therefore SameSite=None.
+ *
+ * Several signals because no single one is reliable in Replit's preview: it
+ * serves the API through Vite's proxy, which sets `changeOrigin: true` and so
+ * rewrites Host to localhost:3001. Origin survives that rewrite, making it the
+ * last header that still reflects the transport the browser actually used.
+ */
+function browserUsesHttps(req?: CookieReq): boolean {
+  if (isProduction || onReplit) return true;
+  if (!req) return false;
+  if (req.secure) return true; // trust proxy + X-Forwarded-Proto
+  if (req.get?.("x-forwarded-proto")?.split(",")[0].trim() === "https") return true;
+  return (req.get?.("origin") || "").startsWith("https://");
+}
+
 /**
  * Cookie options for setting/clearing the session cookie.
  *
  * Replit embeds the app in a cross-site iframe, and browsers refuse to store or
  * send a SameSite=Lax cookie in a third-party frame — which silently broke
  * login and every authenticated write. SameSite=None fixes that but requires
- * Secure, so plain-HTTP local dev keeps Lax. Both attributes therefore follow
- * the transport together.
+ * Secure, so plain-HTTP local dev keeps Lax. All three attributes therefore
+ * follow the transport together.
  *
- * Note SameSite=None only works where third-party cookies are allowed; Safari
- * blocks them outright, so the embedded preview is effectively Chrome-only.
- * Opening the app in its own tab works everywhere.
+ * Partitioned (CHIPS) is what keeps the cookie working once a browser blocks
+ * third-party cookies outright, where SameSite=None alone is not enough.
+ * Browsers that don't know the attribute ignore it. The tradeoff is that the
+ * embedded preview gets its own cookie jar, separate from the same app opened
+ * in a normal tab — two independent logins.
+ *
+ * Safari blocks third-party cookies regardless, so the embedded preview is
+ * effectively Chrome-only. Opening the app in its own tab works everywhere.
  */
-export function sessionCookieOptions(req?: Pick<Request, "secure">) {
-  const secure = isProduction || onReplit || Boolean(req?.secure);
+export function sessionCookieOptions(req?: CookieReq) {
+  const secure = browserUsesHttps(req);
   return {
     httpOnly: true,
     sameSite: (secure ? "none" : "lax") as "none" | "lax",
     secure,
+    partitioned: secure,
     maxAge: 30 * 24 * 60 * 60 * 1000,
     path: "/",
   };

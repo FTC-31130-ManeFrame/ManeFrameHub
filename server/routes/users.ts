@@ -199,8 +199,19 @@ router.post("/login", async (req, res) => {
         }
       }
       const token = signSession({ kind: "member", userId: user.id, roles: (user.roles as string[]) || [] });
-      res.cookie(SESSION_COOKIE, token, sessionCookieOptions(req));
+      const cookieOpts = sessionCookieOptions(req);
+      res.cookie(SESSION_COOKIE, token, cookieOpts);
       console.info("[auth] login", { outcome: "success", secure: req.secure });
+      // Attributes only, never the value — a dropped cookie is invisible from
+      // the server, so this is the only way to tell which attribute was wrong.
+      console.info("[auth] cookie", {
+        sameSite: cookieOpts.sameSite,
+        secure: cookieOpts.secure,
+        partitioned: cookieOpts.partitioned,
+        reqSecure: req.secure,
+        xfProto: req.get("x-forwarded-proto"),
+        originIsHttps: (req.get("origin") || "").startsWith("https://"),
+      });
       res.json(sanitizeUser(user));
     } else {
       console.info("[auth] login", { outcome: "invalid_credentials", secure: req.secure });
