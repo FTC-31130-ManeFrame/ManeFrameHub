@@ -2,6 +2,7 @@ import type { AvailableTask, GeneralTask, MemberProductivity, ProductivityDeepDi
 import type { DepartmentUsageMap } from '../shared/departments';
 
 const API_BASE = '/api';
+export const AUTH_REQUIRED_EVENT = 'piobyte:auth-required';
 
 export async function apiRequest<T>(
   endpoint: string,
@@ -22,6 +23,13 @@ export async function apiRequest<T>(
       const body = await response.json();
       serverMessage = body?.error;
     } catch {}
+    if (
+      response.status === 401 &&
+      (serverMessage === 'Authentication required' || serverMessage === 'Not authenticated') &&
+      typeof window !== 'undefined'
+    ) {
+      window.dispatchEvent(new Event(AUTH_REQUIRED_EVENT));
+    }
     const err: any = new Error(serverMessage || `API error: ${response.status} ${response.statusText}`);
     err.status = response.status;
     throw err;

@@ -1,6 +1,7 @@
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { timingSafeEqual } from "crypto";
+import type { Request } from "express";
 
 const BCRYPT_ROUNDS = 10;
 
@@ -34,12 +35,18 @@ export function verifySession(token: string | undefined | null): SessionToken | 
   }
 }
 
-/** Cookie options for setting/clearing the session cookie. */
-export function sessionCookieOptions() {
+/**
+ * Cookie options for setting/clearing the session cookie.
+ *
+ * In development the app may be reached through either the local HTTP Preview
+ * or Replit's HTTPS proxy. Follow the request transport so local HTTP can keep
+ * a cookie, while HTTPS and all production traffic retain Secure protection.
+ */
+export function sessionCookieOptions(req?: Pick<Request, "secure">) {
   return {
     httpOnly: true,
     sameSite: "lax" as const,
-    secure: isProduction, // Replit terminates TLS at its proxy; requires trust proxy
+    secure: isProduction || Boolean(req?.secure),
     maxAge: 30 * 24 * 60 * 60 * 1000,
     path: "/",
   };

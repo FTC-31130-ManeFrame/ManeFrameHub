@@ -6,7 +6,7 @@ import TaskModal from './components/TaskModal';
 import Confetti from './components/Confetti';
 import ErrorBoundary from './components/ErrorBoundary';
 import CoachTutorial from './components/CoachTutorial';
-import { api } from './services/api';
+import { api, AUTH_REQUIRED_EVENT } from './services/api';
 import { onLiveBoard } from './utils/tasks';
 import { Database, Zap, X, Bell, ShieldAlert, AlertTriangle, KeyRound, ChevronDown, ChevronUp, Loader2 } from 'lucide-react';
 import TeamLogo from './components/TeamLogo';
@@ -63,6 +63,19 @@ const App: React.FC = () => {
       return stored ? new Set(JSON.parse(stored)) : new Set<number>();
     } catch { return new Set<number>(); }
   });
+
+  const clearLocalSession = useCallback(() => {
+    setState(prev => ({ ...prev, currentUser: null }));
+    setIsLoggedIn(false);
+    setGuestSession(null);
+    localStorage.removeItem('frc_hub_active_user');
+    localStorage.removeItem('frc_hub_guest');
+  }, []);
+
+  useEffect(() => {
+    window.addEventListener(AUTH_REQUIRED_EVENT, clearLocalSession);
+    return () => window.removeEventListener(AUTH_REQUIRED_EVENT, clearLocalSession);
+  }, [clearLocalSession]);
 
   useEffect(() => {
     if (darkMode) {
@@ -395,7 +408,10 @@ const App: React.FC = () => {
 
   const handleLogin = async (username: string, password?: string) => {
     try {
-      const user = await api.auth.login(username, password || '');
+      await api.auth.login(username, password || '');
+      // Do not enter the authenticated UI until the browser proves it retained
+      // the httpOnly cookie by sending it back on a protected request.
+      const user = await api.auth.me();
       const mappedUser = { ...user, id: String(user.id) };
       setState(prev => ({ ...prev, currentUser: mappedUser }));
       setIsLoggedIn(true);
@@ -434,11 +450,7 @@ const App: React.FC = () => {
 
   const handleLogout = () => {
     api.auth.logout().catch(() => {});
-    setState(prev => ({ ...prev, currentUser: null }));
-    setIsLoggedIn(false);
-    setGuestSession(null);
-    localStorage.removeItem('frc_hub_active_user');
-    localStorage.removeItem('frc_hub_guest');
+    clearLocalSession();
   };
 
   if (!isLoggedIn) {

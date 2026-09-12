@@ -197,7 +197,7 @@ router.post("/login", async (req, res) => {
         }
       }
       const token = signSession({ kind: "member", userId: user.id, roles: (user.roles as string[]) || [] });
-      res.cookie(SESSION_COOKIE, token, sessionCookieOptions());
+      res.cookie(SESSION_COOKIE, token, sessionCookieOptions(req));
       res.json(sanitizeUser(user));
     } else {
       res.status(401).json({ error: "Invalid credentials" });
@@ -218,7 +218,7 @@ router.post("/guest-login", async (req, res) => {
     const token = await storage.getGuestTokenByPin(String(pin).trim());
     if (!token) return res.status(404).json({ error: "Invalid or expired PIN" });
     const session = signSession({ kind: "guest", eventId: token.eventId });
-    res.cookie(SESSION_COOKIE, session, sessionCookieOptions());
+    res.cookie(SESSION_COOKIE, session, sessionCookieOptions(req));
     res.json({ eventId: token.eventId, eventName: token.eventName, pin: token.pin, label: token.label });
   } catch (error) {
     console.error("Error with guest login:", error);
@@ -245,7 +245,7 @@ router.get("/me", async (req, res) => {
 });
 
 router.post("/logout", (req, res) => {
-  res.clearCookie(SESSION_COOKIE, { ...sessionCookieOptions(), maxAge: undefined });
+  res.clearCookie(SESSION_COOKIE, { ...sessionCookieOptions(req), maxAge: undefined });
   res.json({ ok: true });
 });
 

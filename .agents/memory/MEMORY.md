@@ -1,1 +1,2 @@
 - [Competition attendance dates](competition-attendance-dates.md) — missing end dates mean one-day events; live attendance must use the event's date range, while history remains unfiltered.
+- [Preview session cookies](preview-session-cookies.md) — choose cookie security from request transport; verify cookie retention before entering the authenticated UI.
