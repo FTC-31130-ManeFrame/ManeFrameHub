@@ -35,18 +35,33 @@ export function verifySession(token: string | undefined | null): SessionToken | 
   }
 }
 
+// Replit runs the *preview* with `npm run dev` (see .replit), so NODE_ENV is
+// "development" there even though the browser reaches us over Replit's HTTPS
+// edge. Detect the platform directly rather than depending on X-Forwarded-Proto
+// surviving Vite's proxy hop to the API.
+const onReplit = Boolean(
+  process.env.REPL_ID || process.env.REPLIT_DEV_DOMAIN || process.env.REPLIT_DOMAINS,
+);
+
 /**
  * Cookie options for setting/clearing the session cookie.
  *
- * In development the app may be reached through either the local HTTP Preview
- * or Replit's HTTPS proxy. Follow the request transport so local HTTP can keep
- * a cookie, while HTTPS and all production traffic retain Secure protection.
+ * Replit embeds the app in a cross-site iframe, and browsers refuse to store or
+ * send a SameSite=Lax cookie in a third-party frame — which silently broke
+ * login and every authenticated write. SameSite=None fixes that but requires
+ * Secure, so plain-HTTP local dev keeps Lax. Both attributes therefore follow
+ * the transport together.
+ *
+ * Note SameSite=None only works where third-party cookies are allowed; Safari
+ * blocks them outright, so the embedded preview is effectively Chrome-only.
+ * Opening the app in its own tab works everywhere.
  */
 export function sessionCookieOptions(req?: Pick<Request, "secure">) {
+  const secure = isProduction || onReplit || Boolean(req?.secure);
   return {
     httpOnly: true,
-    sameSite: "lax" as const,
-    secure: isProduction || Boolean(req?.secure),
+    sameSite: (secure ? "none" : "lax") as "none" | "lax",
+    secure,
     maxAge: 30 * 24 * 60 * 60 * 1000,
     path: "/",
   };

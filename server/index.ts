@@ -8,6 +8,7 @@ import { spawnSync } from "child_process";
 import { storage } from "./storage";
 import { pool } from "./db.js";
 import { authenticate } from "./middleware/auth";
+import { verifyOrigin } from "./middleware/csrf";
 import { getTeamTimezone } from "./services/teamTime";
 import { SESSION_SECRET } from "./security";
 
@@ -144,6 +145,8 @@ if (isProduction) {
   app.use(express.static(path.join(__dirname, "../dist")));
 }
 
+// Ahead of authenticate so it also covers POST /login, which is itself CSRF-able.
+app.use("/api", verifyOrigin);
 // Gate every /api route behind a valid session (public allowlist inside).
 app.use("/api", authenticate);
 
