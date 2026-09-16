@@ -470,11 +470,13 @@ const Calendar: React.FC<CalendarProps> = ({ currentUser }) => {
     setToaSelected(new Set());
     setToaError('');
     try {
-      const data = await api.calendar.toaPreview(parseInt(currentUser.id));
+      // FTC events come from FIRST's official API; the import below is
+      // source-agnostic and consumes the same shape TOA used to produce.
+      const data = await api.calendar.firstPreview(parseInt(currentUser.id));
       setToaEvents(data);
       setToaSelected(new Set(data.map((e: any) => e.key)));
     } catch (e: any) {
-      setToaError(e.message || 'Failed to fetch TOA events');
+      setToaError(e.message || 'Failed to fetch FTC events');
     } finally {
       setToaLoading(false);
     }

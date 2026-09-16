@@ -1,6 +1,10 @@
 import { Router } from "express";
 import { storage } from "../storage";
-import { getUserRoles, hasAnyRole, COACH_CAPTAIN_DEPT_HEAD, LEADERSHIP_ALL, tbaFetch, TBA_KEY, toaFetch, TOA_KEY } from "../helpers";
+import {
+  getUserRoles, hasAnyRole, COACH_CAPTAIN_DEPT_HEAD, LEADERSHIP_ALL,
+  tbaFetch, TBA_KEY, toaFetch, TOA_KEY,
+  firstFetch, hasFirstKey, currentFirstSeason,
+} from "../helpers";
 import { filterVisibleEvents } from "../services/eventVisibility";
 import { sendPushToUsers } from "../push";
 
@@ -246,6 +250,47 @@ router.get("/calendar/toa-preview", async (req, res) => {
   } catch (error) {
     console.error("Error fetching TOA preview:", error);
     res.status(500).json({ error: "Failed to fetch TOA events" });
+  }
+});
+
+// Emits the same {key,name,startDate,endDate,location} shape as toa-preview,
+// so the existing import route below consumes it unchanged.
+router.get("/calendar/first-preview", async (req, res) => {
+  try {
+    if (!(await hasFirstKey())) {
+      return res.status(503).json({
+        error: "FIRST API credentials are not configured. Add them in Control Panel → API Integrations.",
+      });
+    }
+    const requesterId = req.query.requesterId ? parseInt(req.query.requesterId as string) : undefined;
+    if (!requesterId) return res.status(400).json({ error: "requesterId is required" });
+    const actorRoles = await getUserRoles(requesterId);
+    if (!hasAnyRole(actorRoles, COACH_CAPTAIN_DEPT_HEAD)) {
+      return res.status(403).json({ error: "Only Coaches, Captains, or Department Heads can import events" });
+    }
+    const teamSettings = await storage.getTeamSettings();
+    const teamNum = teamSettings.teamNumber as number;
+    // FIRST uses the 4-digit start year, not TOA's "2526" form.
+    const seasonQ = parseInt(String(req.query.season ?? ""), 10);
+    const season = Number.isFinite(seasonQ) && seasonQ > 2000 ? seasonQ : currentFirstSeason();
+    const data: any = await firstFetch(`/${season}/events?teamNumber=${teamNum}`);
+    const events = Array.isArray(data?.events) ? data.events : [];
+    const mapped = events.map((e: any) => ({
+      key: e.code,
+      name: e.name,
+      startDate: e.dateStart ? String(e.dateStart).slice(0, 10) : null,
+      endDate: e.dateEnd ? String(e.dateEnd).slice(0, 10) : null,
+      location: [e.venue, e.city, e.stateprov ?? e.stateProv, e.country].filter(Boolean).join(', '),
+    }));
+    res.json(mapped);
+  } catch (error: any) {
+    if (error?.status === 401) {
+      return res.status(502).json({
+        error: "FIRST rejected these credentials. Check the username and token in Control Panel → API Integrations.",
+      });
+    }
+    console.error("Error fetching FIRST preview:", error?.message);
+    res.status(500).json({ error: "Failed to fetch FIRST events" });
   }
 });
 

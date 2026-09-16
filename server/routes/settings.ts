@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { PNG } from "pngjs";
 import { storage, DepartmentChangeError } from "../storage";
-import { getUserRoles, hasAnyRole, COACH_CAPTAIN, hasTbaKey, hasToaKey, hasNexusKey, invalidateApiKeyCache, getResolvedKeys } from "../helpers";
+import { getUserRoles, hasAnyRole, COACH_CAPTAIN, hasTbaKey, hasToaKey, hasNexusKey, hasFirstKey, invalidateApiKeyCache, getResolvedKeys } from "../helpers";
 import { invalidateTeamTimezoneCache } from "../services/teamTime";
 import { requireRoles } from "../middleware/auth";
 import { EMPTY_DEPARTMENT_CHANGES, derivedRemovals } from "../../shared/departments";
@@ -175,7 +175,7 @@ const DEFAULT_ROLES = [
 // Never expose stored API keys to clients. The UI reads presence/absence from
 // GET /settings/api-status (booleans) instead.
 function stripApiKeys(settings: any) {
-  const { tbaApiKey, toaApiKey, nexusApiKey, ...safe } = settings;
+  const { tbaApiKey, toaApiKey, nexusApiKey, ftcApiUsername, ftcApiToken, ...safe } = settings;
   return safe;
 }
 
@@ -427,12 +427,13 @@ router.get("/settings/api-status", async (_req, res) => {
     tba: await hasTbaKey(),
     toa: await hasToaKey(),
     nexus: await hasNexusKey(),
+    first: await hasFirstKey(),
   });
 });
 
 router.put("/settings/api-keys", async (req, res) => {
   try {
-    const { requesterId, tbaApiKey, toaApiKey, nexusApiKey } = req.body;
+    const { requesterId, tbaApiKey, toaApiKey, nexusApiKey, ftcApiUsername, ftcApiToken } = req.body;
     if (!requesterId) return res.status(400).json({ error: "requesterId is required" });
     const actorRoles = await getUserRoles(parseInt(requesterId));
     if (!hasAnyRole(actorRoles, COACH_CAPTAIN)) {
@@ -442,6 +443,8 @@ router.put("/settings/api-keys", async (req, res) => {
     if (tbaApiKey   !== undefined) patch.tbaApiKey   = tbaApiKey   || null;
     if (toaApiKey   !== undefined) patch.toaApiKey   = toaApiKey   || null;
     if (nexusApiKey !== undefined) patch.nexusApiKey = nexusApiKey || null;
+    if (ftcApiUsername !== undefined) patch.ftcApiUsername = ftcApiUsername || null;
+    if (ftcApiToken    !== undefined) patch.ftcApiToken    = ftcApiToken    || null;
     await storage.upsertTeamSettings(patch);
     invalidateApiKeyCache();
     res.json({ ok: true });

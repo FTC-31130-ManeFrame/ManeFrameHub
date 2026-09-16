@@ -90,7 +90,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({ currentUserRoles, currentUs
   const [logoMsg, setLogoMsg] = useState<string | null>(null);
   const [logoUploading, setLogoUploading] = useState(false);
   const logoFileRef = useRef<HTMLInputElement>(null);
-  const [apiStatus, setApiStatus] = useState<{ tba: boolean; toa: boolean; nexus: boolean } | null>(null);
+  const [apiStatus, setApiStatus] = useState<{ tba: boolean; toa: boolean; nexus: boolean; first: boolean } | null>(null);
 
   // Department rename/delete tracking — see the DeptDraft comment above.
   const [deptDrafts, setDeptDrafts] = useState<DeptDraft[]>(() => toDeptDrafts(settings.departments));
@@ -104,6 +104,14 @@ const ControlPanel: React.FC<ControlPanelProps> = ({ currentUserRoles, currentUs
   const [apiKeySaved, setApiKeySaved] = useState<Record<string, boolean>>({});
   const [apiKeyError, setApiKeyError] = useState<Record<string, string>>({});
   const [apiKeyVisible, setApiKeyVisible] = useState<Record<string, boolean>>({});
+
+  // FIRST's API takes a username + token pair, so it can't ride the
+  // single-value apiKeyForm the other providers share.
+  const [firstForm, setFirstForm] = useState({ username: '', token: '' });
+  const [firstSaving, setFirstSaving] = useState(false);
+  const [firstSaved, setFirstSaved] = useState(false);
+  const [firstError, setFirstError] = useState('');
+  const [firstTokenVisible, setFirstTokenVisible] = useState(false);
 
   const [scoutEvents, setScoutEvents] = useState<any[]>([]);
   const [eventPins, setEventPins] = useState<Record<number, any>>({});
@@ -367,6 +375,26 @@ const ControlPanel: React.FC<ControlPanelProps> = ({ currentUserRoles, currentUs
       setApiKeyError(s => ({ ...s, [field]: err?.message || 'Save failed' }));
     } finally {
       setApiKeySaving(s => ({ ...s, [field]: false }));
+    }
+  };
+
+  const handleSaveFirstCreds = async (clear = false) => {
+    setFirstSaving(true);
+    setFirstError('');
+    try {
+      await api.settings.saveApiKeys({
+        requesterId: currentUserId ? parseInt(currentUserId) : 0,
+        ftcApiUsername: clear ? null : firstForm.username.trim() || null,
+        ftcApiToken:    clear ? null : firstForm.token.trim()    || null,
+      });
+      setFirstSaved(true);
+      setFirstForm({ username: '', token: '' });
+      setApiStatus(await api.settings.getApiStatus());
+      setTimeout(() => setFirstSaved(false), 2500);
+    } catch (err: any) {
+      setFirstError(err?.message || 'Save failed');
+    } finally {
+      setFirstSaving(false);
     }
   };
 
@@ -856,6 +884,82 @@ const ControlPanel: React.FC<ControlPanelProps> = ({ currentUserRoles, currentUs
               </div>
             </div>
           ))}
+
+          {/* FIRST's own FTC API — a username + token pair, so it gets its own card. */}
+          <div className="rounded-xl border border-slate-100 dark:border-slate-700 overflow-hidden">
+            <div className="flex items-center justify-between px-4 py-3 bg-slate-50 dark:bg-slate-700/40 border-b border-slate-100 dark:border-slate-700">
+              <div className="flex items-center gap-2.5">
+                <span className="px-2 py-0.5 rounded-md text-[9px] font-black text-white uppercase tracking-widest" style={{ backgroundColor: '#f97316' }}>FTC</span>
+                <span className="text-sm font-black text-slate-800 dark:text-slate-100">FIRST Tech Challenge Events API</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className={`w-2 h-2 rounded-full ${apiStatus?.first ? 'bg-green-500' : 'bg-slate-300 dark:bg-slate-600'}`} />
+                <span className={`text-[10px] font-black uppercase tracking-widest ${apiStatus?.first ? 'text-green-600 dark:text-green-400' : 'text-slate-400 dark:text-slate-500'}`}>
+                  {apiStatus?.first ? 'Active' : 'Not set'}
+                </span>
+              </div>
+            </div>
+            <div className="p-4 space-y-3">
+              <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">
+                Official FIRST source for FTC event schedules, match results, rankings and team lists. Registration is instant and self-serve.
+              </p>
+              <a href="https://ftc-events.firstinspires.org/services/API/register" target="_blank" rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 text-[11px] font-black text-teamColor hover:opacity-75 transition-opacity">
+                Register at ftc-events.firstinspires.org →
+              </a>
+              <input
+                type="text"
+                value={firstForm.username}
+                onChange={e => setFirstForm(f => ({ ...f, username: e.target.value }))}
+                placeholder={apiStatus?.first ? 'Username (saved — retype to replace)' : 'Username from your registration email'}
+                className="w-full px-3 py-2 text-xs font-mono border border-slate-200 dark:border-slate-600 rounded-xl bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 placeholder:text-slate-300 dark:placeholder:text-slate-600"
+                style={{ '--tw-ring-color': form.themeColor } as React.CSSProperties & Record<string, string>}
+              />
+              <div className="flex gap-2">
+                <div className="relative flex-1">
+                  <input
+                    type={firstTokenVisible ? 'text' : 'password'}
+                    value={firstForm.token}
+                    onChange={e => setFirstForm(f => ({ ...f, token: e.target.value }))}
+                    placeholder={apiStatus?.first ? '●●●●●●●● (saved — paste new token to replace)' : 'Authorization token'}
+                    className="w-full px-3 py-2 pr-9 text-xs font-mono border border-slate-200 dark:border-slate-600 rounded-xl bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 placeholder:text-slate-300 dark:placeholder:text-slate-600"
+                    style={{ '--tw-ring-color': form.themeColor } as React.CSSProperties & Record<string, string>}
+                    onKeyDown={e => e.key === 'Enter' && firstForm.username.trim() && firstForm.token.trim() && handleSaveFirstCreds()}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setFirstTokenVisible(v => !v)}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
+                    tabIndex={-1}
+                  >
+                    <KeyRound size={13} />
+                  </button>
+                </div>
+                <button
+                  onClick={() => handleSaveFirstCreds()}
+                  disabled={!firstForm.username.trim() || !firstForm.token.trim() || firstSaving}
+                  className="flex items-center gap-1.5 px-3 py-2 text-[10px] font-black text-white rounded-xl transition-all disabled:opacity-40 shrink-0"
+                  style={{ backgroundColor: form.themeColor }}
+                >
+                  {firstSaving ? <Loader2 size={11} className="animate-spin" /> : firstSaved ? <Check size={11} /> : <Save size={11} />}
+                  {firstSaved ? 'Saved!' : 'Save'}
+                </button>
+              </div>
+              <p className="text-[10px] text-slate-400 dark:text-slate-500 font-medium">Both fields are required — the API authenticates with the pair.</p>
+              {firstError && (
+                <p className="text-[10px] font-bold text-red-500 flex items-center gap-1"><AlertTriangle size={10} />{firstError}</p>
+              )}
+              {apiStatus?.first && (
+                <button
+                  onClick={() => handleSaveFirstCreds(true)}
+                  className="text-[10px] font-bold text-red-400 hover:text-red-500 flex items-center gap-1 transition-colors"
+                >
+                  <X size={10} /> Remove credentials
+                </button>
+              )}
+            </div>
+          </div>
+
           <p className="text-[10px] text-slate-400 dark:text-slate-500 font-medium">
             Keys are stored securely server-side and never exposed to the browser. Environment secrets (if set) are used as a fallback when no key is saved here.
           </p>

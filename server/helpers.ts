@@ -28,17 +28,33 @@ export function roundToQuarterHour(minutes: number): number {
   return Math.ceil(minutes / 15) * 15;
 }
 
-let _keyCache: { tba: string; toa: string; nexus: string; expiresAt: number } | null = null;
+type FirstCreds = { username: string; token: string };
+
+let _keyCache: {
+  tba: string;
+  toa: string;
+  nexus: string;
+  first: FirstCreds;
+  expiresAt: number;
+} | null = null;
 
 async function getApiKeys() {
   const now = Date.now();
   if (_keyCache && _keyCache.expiresAt > now) return _keyCache;
+  const envFirst: FirstCreds = {
+    username: process.env.FTC_API_USERNAME || "",
+    token:    process.env.FTC_API_TOKEN    || "",
+  };
   try {
     const s = await storage.getTeamSettings();
     _keyCache = {
       tba:   (s.tbaApiKey   as string | null) || process.env.TBA_API_KEY   || "",
       toa:   (s.toaApiKey   as string | null) || process.env.TOA_API_KEY   || "",
       nexus: (s.nexusApiKey as string | null) || process.env.NEXUS_API_KEY || "",
+      first: {
+        username: (s.ftcApiUsername as string | null) || envFirst.username,
+        token:    (s.ftcApiToken    as string | null) || envFirst.token,
+      },
       expiresAt: now + 5 * 60 * 1000,
     };
   } catch {
@@ -46,6 +62,7 @@ async function getApiKeys() {
       tba:   process.env.TBA_API_KEY   || "",
       toa:   process.env.TOA_API_KEY   || "",
       nexus: process.env.NEXUS_API_KEY || "",
+      first: envFirst,
       expiresAt: now + 30 * 1000,
     };
   }
@@ -121,4 +138,36 @@ export async function nexusFetch(path: string) {
 export async function hasNexusKey(): Promise<boolean> {
   const { nexus } = await getApiKeys();
   return !!nexus;
+}
+
+// FIRST's official FTC Events API. Unlike TBA/TOA/Nexus it authenticates with
+// HTTP Basic over a username + token pair, and `season` is the 4-digit start
+// year of the season (2025 = the 2025-26 season), not TOA's "2526" form.
+const FIRST_BASE = "https://ftc-api.firstinspires.org/v2.0";
+
+export async function firstFetch(path: string) {
+  const { first } = await getApiKeys();
+  if (!first.username || !first.token) {
+    throw new Error("No FIRST API credentials configured. Add them in Control Panel → API Integrations.");
+  }
+  const auth = Buffer.from(`${first.username}:${first.token}`).toString("base64");
+  const resp = await fetch(`${FIRST_BASE}${path}`, {
+    headers: { Authorization: `Basic ${auth}`, Accept: "application/json" },
+  });
+  if (!resp.ok) {
+    const err: any = new Error(`FIRST API error: ${resp.status} ${resp.statusText}`);
+    err.status = resp.status;
+    throw err;
+  }
+  return resp.json();
+}
+
+export async function hasFirstKey(): Promise<boolean> {
+  const { first } = await getApiKeys();
+  return !!(first.username && first.token);
+}
+
+/** Start year of the current FTC season — it rolls over in September. */
+export function currentFirstSeason(now = new Date()): number {
+  return now.getMonth() >= 8 ? now.getFullYear() : now.getFullYear() - 1;
 }

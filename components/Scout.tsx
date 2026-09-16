@@ -558,48 +558,28 @@ const Scout: React.FC<ScoutProps> = ({ currentUser }) => {
     setTbaLoading(false);
   }, [teamNumber]);
 
-  const fetchToaData = useCallback(async (toaEventKey: string) => {
-    if (!toaEventKey) return;
+  // FTC event data comes from FIRST's official API. The stored field is still
+  // named toaEventKey (renaming it would need a migration) but now holds a
+  // FIRST eventCode. Unlike the TBA path above, the server returns these
+  // already normalized, so there is no reshaping to do here.
+  const fetchFirstData = useCallback(async (eventCode: string) => {
+    if (!eventCode) return;
     setTbaLoading(true);
     try {
       const [allMatches, rankingsData] = await Promise.all([
-        api.toa.getEventMatches(toaEventKey),
-        api.toa.getEventRankings(toaEventKey).catch(() => []),
+        api.first.getEventMatches(eventCode),
+        api.first.getEventRankings(eventCode).catch(() => []),
       ]);
-      const normalizedMatches = (allMatches || []).map((m: any) => {
-        const redTeams = (m.teams || []).filter((t: any) => t.station_key && t.station_key.startsWith('Red'));
-        const blueTeams = (m.teams || []).filter((t: any) => t.station_key && t.station_key.startsWith('Blue'));
-        return {
-          key: m.match_key,
-          comp_level: m.tournament_level === 1 ? 'qm' : m.tournament_level === 3 ? 'sf' : m.tournament_level === 4 ? 'f' : 'qm',
-          match_number: m.match_number || 1,
-          set_number: m.match_number || 1,
-          alliances: {
-            red: {
-              team_keys: redTeams.map((t: any) => t.team_key),
-              score: m.red_score ?? -1,
-            },
-            blue: {
-              team_keys: blueTeams.map((t: any) => t.team_key),
-              score: m.blue_score ?? -1,
-            },
-          },
-          winning_alliance: m.red_score != null && m.blue_score != null
-            ? (m.red_score > m.blue_score ? 'red' : m.blue_score > m.red_score ? 'blue' : '')
-            : '',
-          post_result_time: (m.red_score != null && m.red_score >= 0) ? 1 : null,
-        };
-      });
+      const normalizedMatches = allMatches || [];
       setTbaMatches(normalizedMatches);
       if (Array.isArray(rankingsData) && rankingsData.length > 0) {
         const map = new Map<number, { rank: number; rp: number; record: string }>();
         for (const r of rankingsData) {
-          const teamNum = parseInt((r.team_key || '').replace('ftc', '') || '0');
-          if (teamNum) {
-            map.set(teamNum, {
+          if (r.teamNumber) {
+            map.set(r.teamNumber, {
               rank: r.rank || 0,
-              rp: r.ranking_points || 0,
-              record: `${r.wins || 0}-${r.losses || 0}-${r.ties || 0}`,
+              rp: r.rp || 0,
+              record: r.record || '0-0-0',
             });
           }
         }
@@ -624,7 +604,7 @@ const Scout: React.FC<ScoutProps> = ({ currentUser }) => {
         setTbaRecord(null);
       }
     } catch (err) {
-      console.error('Failed to fetch TOA data:', err);
+      console.error('Failed to fetch FIRST event data:', err);
       setTbaMatches([]);
       setTbaRecord(null);
     }
@@ -635,9 +615,9 @@ const Scout: React.FC<ScoutProps> = ({ currentUser }) => {
     if (!activeEvent?.toaEventKey) return;
     setTbaImporting(true);
     try {
-      const teams = await api.toa.getEventTeams(activeEvent.toaEventKey);
+      const teams = await api.first.getEventTeams(activeEvent.toaEventKey);
       if (!teams || teams.length === 0) {
-        alert('No teams found for this event on The Orange Alliance.');
+        alert('No teams found for this event in the FIRST Events API.');
         setTbaImporting(false);
         return;
       }
@@ -768,7 +748,7 @@ const Scout: React.FC<ScoutProps> = ({ currentUser }) => {
     fetchAssignments(event.id);
     fetchMatchExceptions(event.id);
     if (event.toaEventKey) {
-      fetchToaData(event.toaEventKey);
+      fetchFirstData(event.toaEventKey);
     } else if (event.tbaEventKey) {
       fetchTbaData(event.tbaEventKey);
     }
@@ -826,7 +806,7 @@ const Scout: React.FC<ScoutProps> = ({ currentUser }) => {
       setActiveEvent(merged);
       setShowEventSettings(false);
       if (merged.toaEventKey) {
-        fetchToaData(merged.toaEventKey);
+        fetchFirstData(merged.toaEventKey);
       } else if (merged.tbaEventKey) {
         fetchTbaData(merged.tbaEventKey);
       }
@@ -1088,11 +1068,11 @@ const Scout: React.FC<ScoutProps> = ({ currentUser }) => {
       fetchEventData(activeEvent.id),
       fetchTeamClaims(),
     ];
-    if (activeEvent.toaEventKey) tasks.push(fetchToaData(activeEvent.toaEventKey));
+    if (activeEvent.toaEventKey) tasks.push(fetchFirstData(activeEvent.toaEventKey));
     else if (activeEvent.tbaEventKey) tasks.push(fetchTbaData(activeEvent.tbaEventKey));
     await Promise.allSettled(tasks);
     setMatchRefreshing(false);
-  }, [activeEvent, fetchEventData, fetchTbaData, fetchToaData]);
+  }, [activeEvent, fetchEventData, fetchTbaData, fetchFirstData]);
 
   const claimTeam = async (matchKey: string, teamNumber: number) => {
     if (isGuest || !activeEvent || !currentUser) return;
@@ -2557,7 +2537,7 @@ const Scout: React.FC<ScoutProps> = ({ currentUser }) => {
             nexusError={nexusError}
             nexusCountdown={nexusCountdown || null}
             onFetchNexusData={fetchNexusData}
-            onFetchTbaData={(_key: string) => activeEvent?.toaEventKey ? fetchToaData(activeEvent.toaEventKey) : fetchTbaData(activeEvent?.tbaEventKey || _key)}
+            onFetchTbaData={(_key: string) => activeEvent?.toaEventKey ? fetchFirstData(activeEvent.toaEventKey) : fetchTbaData(activeEvent?.tbaEventKey || _key)}
             tbaMatches={tbaMatches}
             tbaLoading={tbaLoading}
             tbaRecord={tbaRecord}

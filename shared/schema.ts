@@ -637,6 +637,10 @@ export const teamSettings = pgTable("team_settings", {
   tbaApiKey: text("tba_api_key"),
   toaApiKey: text("toa_api_key"),
   nexusApiKey: text("nexus_api_key"),
+  // FIRST's official FTC Events API authenticates with a username + token pair
+  // (HTTP Basic), not a single key like the others.
+  ftcApiUsername: text("ftc_api_username"),
+  ftcApiToken: text("ftc_api_token"),
   // Requirements config (Epic C) — fundraising goal + per-category hour requirements.
   requirements: jsonb("requirements").$type<any>(),
   fundraisingCategories: jsonb("fundraising_categories").$type<string[]>(),

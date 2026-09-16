@@ -2106,6 +2106,9 @@ export class DatabaseStorage implements IStorage {
     await db.execute(sql`ALTER TABLE team_settings ADD COLUMN IF NOT EXISTS tba_api_key TEXT`);
     await db.execute(sql`ALTER TABLE team_settings ADD COLUMN IF NOT EXISTS toa_api_key TEXT`);
     await db.execute(sql`ALTER TABLE team_settings ADD COLUMN IF NOT EXISTS nexus_api_key TEXT`);
+    // FIRST's FTC Events API authenticates with a username + token pair.
+    await db.execute(sql`ALTER TABLE team_settings ADD COLUMN IF NOT EXISTS ftc_api_username TEXT`);
+    await db.execute(sql`ALTER TABLE team_settings ADD COLUMN IF NOT EXISTS ftc_api_token TEXT`);
   }
 
   async ensureTeamTimezoneColumn(): Promise<void> {

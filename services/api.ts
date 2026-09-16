@@ -246,6 +246,16 @@ export const api = {
     getTeamEvents: (teamKey: string, season: string) => apiRequest<any[]>(`/toa/team/${teamKey}/events/${season}`),
     getTeamMedia: (teamKey: string) => apiRequest<{ url: string; description: string }[]>(`/toa/team/${teamKey}/media`),
   },
+  // FIRST's official FTC Events API. These come back already normalized by the
+  // server, so callers use them as-is — unlike the TOA methods above.
+  first: {
+    getEventMatches: (eventCode: string) => apiRequest<any[]>(`/first/event/${eventCode}/matches`),
+    getEventRankings: (eventCode: string) =>
+      apiRequest<{ teamNumber: number; rank: number; rp: number; record: string }[]>(
+        `/first/event/${eventCode}/rankings`,
+      ),
+    getEventTeams: (eventCode: string) => apiRequest<any[]>(`/first/event/${eventCode}/teams`),
+  },
   nexus: {
     getEvent: (eventKey: string) => apiRequest<any>(`/nexus/${eventKey}`),
     getPits: (eventKey: string) => apiRequest<any>(`/nexus/${eventKey}/pits`),
@@ -372,6 +382,9 @@ export const api = {
       apiRequest<{ created: number; skipped: number }>('/calendar/tba-import', { method: 'POST', body: JSON.stringify({ requesterId, events }) }),
     toaPreview: (requesterId: number, season?: string) =>
       apiRequest<any[]>(`/calendar/toa-preview?requesterId=${requesterId}${season ? `&season=${season}` : ''}`),
+    firstPreview: (requesterId: number, season?: number) =>
+      apiRequest<any[]>(`/calendar/first-preview?requesterId=${requesterId}${season ? `&season=${season}` : ''}`),
+    // Source-agnostic: takes {name,startDate,endDate,location} from either preview.
     toaImport: (requesterId: number, events: any[]) =>
       apiRequest<{ created: number; skipped: number }>('/calendar/toa-import', { method: 'POST', body: JSON.stringify({ requesterId, events }) }),
     // Personal webcal/ICS subscription feed — see server/routes/calendarFeed.ts.
@@ -385,8 +398,8 @@ export const api = {
     departmentUsage: () => apiRequest<DepartmentUsageMap>('/settings/department-usage'),
     fetchTbaLogo: (teamNumber: number) => apiRequest<{ logoUrl: string | null }>(`/settings/tba-logo?team=${teamNumber}`),
     fetchToaLogo: (teamNumber: number) => apiRequest<{ logoUrl: string | null }>(`/settings/toa-logo?team=${teamNumber}`),
-    getApiStatus: () => apiRequest<{ tba: boolean; toa: boolean; nexus: boolean }>('/settings/api-status'),
-    saveApiKeys: (data: { requesterId: number; tbaApiKey?: string | null; toaApiKey?: string | null; nexusApiKey?: string | null }) =>
+    getApiStatus: () => apiRequest<{ tba: boolean; toa: boolean; nexus: boolean; first: boolean }>('/settings/api-status'),
+    saveApiKeys: (data: { requesterId: number; tbaApiKey?: string | null; toaApiKey?: string | null; nexusApiKey?: string | null; ftcApiUsername?: string | null; ftcApiToken?: string | null }) =>
       apiRequest<void>('/settings/api-keys', { method: 'PUT', body: JSON.stringify(data) }),
   },
   resources: {

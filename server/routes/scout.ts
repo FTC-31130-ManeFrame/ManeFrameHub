@@ -1,6 +1,9 @@
 import { Router } from "express";
 import { storage } from "../storage";
-import { tbaFetch, TBA_KEY, nexusFetch, toaFetch, TOA_KEY, hasNexusKey } from "../helpers";
+import {
+  tbaFetch, TBA_KEY, nexusFetch, toaFetch, TOA_KEY, hasNexusKey,
+  firstFetch, hasFirstKey, currentFirstSeason,
+} from "../helpers";
 import { requireRoles } from "../middleware/auth";
 import { BUILTIN_TEMPLATES, type ScoutKind, type TemplateField } from "../../shared/scoutingTemplates";
 import { liveCompetitionEvents, localDatePT } from "../../utils/dates";
@@ -440,6 +443,147 @@ router.get("/toa/team/:teamKey/media", async (req, res) => {
   } catch (error) {
     console.error("TOA team media error:", error);
     res.status(500).json({ error: "Failed to fetch TOA team media" });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// FIRST's official FTC Events API.
+//
+// Unlike the TOA routes above — which hand raw JSON to the client and let
+// Scout.tsx reshape it — these normalize server-side, so the mapping lives in
+// one place. The output shapes deliberately match what the client already
+// builds from TOA, so the scouting screens consume them unchanged.
+// ---------------------------------------------------------------------------
+
+const FIRST_UNCONFIGURED =
+  "FIRST API credentials are not configured. Add them in Control Panel → API Integrations.";
+
+/**
+ * FIRST answers 401 for a bad username/token pair. Say so, rather than letting
+ * a credential typo surface as an opaque 500.
+ */
+function sendFirstError(res: any, error: any, what: string) {
+  if (error?.status === 401) {
+    return res.status(502).json({
+      error: "FIRST rejected these credentials. Check the username and token in Control Panel → API Integrations.",
+    });
+  }
+  console.error(`FIRST ${what} error:`, error?.message);
+  return res.status(500).json({ error: `Failed to fetch FIRST ${what}` });
+}
+
+/** Season defaults to the current one; `?season=2025` overrides. */
+function seasonFrom(value: unknown): number {
+  const n = parseInt(String(value ?? ""), 10);
+  return Number.isFinite(n) && n > 2000 ? n : currentFirstSeason();
+}
+
+/** FIRST reports "QUALIFICATION"/"SEMIFINAL"/"FINAL"; the client wants TBA's codes. */
+function compLevelOf(level: unknown): "qm" | "sf" | "f" {
+  const s = String(level ?? "").toUpperCase();
+  if (s.startsWith("QUAL")) return "qm";
+  if (s.startsWith("FINAL")) return "f";
+  return s ? "sf" : "qm";
+}
+
+function normalizeFirstMatches(eventCode: string, raw: any) {
+  const matches = Array.isArray(raw?.matches) ? raw.matches : [];
+  return matches.map((m: any) => {
+    const teams = Array.isArray(m.teams) ? m.teams : [];
+    const keysFor = (side: string) =>
+      teams
+        .filter((t: any) => String(t.station || "").toLowerCase().startsWith(side))
+        .map((t: any) => `ftc${t.teamNumber}`);
+    const red = m.scoreRedFinal ?? -1;
+    const blue = m.scoreBlueFinal ?? -1;
+    // postResultTime is the API's own "this match is final" signal; the score
+    // check is a fallback. A genuine 0-0 tie reads as unplayed — acceptable,
+    // since the alternative is showing every unplayed match as a 0-0 tie.
+    const played = m.postResultTime != null || (red >= 0 && blue >= 0 && red + blue > 0);
+    const compLevel = compLevelOf(m.tournamentLevel);
+    const number = m.matchNumber ?? 1;
+    return {
+      key: `${eventCode}_${compLevel}${number}`,
+      comp_level: compLevel,
+      match_number: number,
+      set_number: m.series || number,
+      alliances: {
+        red:  { team_keys: keysFor("red"),  score: red },
+        blue: { team_keys: keysFor("blue"), score: blue },
+      },
+      winning_alliance: played && red !== blue ? (red > blue ? "red" : "blue") : "",
+      post_result_time: played ? 1 : null,
+    };
+  });
+}
+
+router.get("/first/event/:eventCode/matches", async (req, res) => {
+  try {
+    if (!(await hasFirstKey())) return res.status(503).json({ error: FIRST_UNCONFIGURED });
+    const season = seasonFrom(req.query.season);
+    const code = req.params.eventCode;
+    const data = await firstFetch(`/${season}/matches/${encodeURIComponent(code)}`);
+    res.json(normalizeFirstMatches(code, data));
+  } catch (error: any) {
+    if (error?.status === 404) return res.json([]); // schedule not posted yet
+    return sendFirstError(res, error, "event matches");
+  }
+});
+
+router.get("/first/event/:eventCode/rankings", async (req, res) => {
+  try {
+    if (!(await hasFirstKey())) return res.status(503).json({ error: FIRST_UNCONFIGURED });
+    const season = seasonFrom(req.query.season);
+    const data: any = await firstFetch(
+      `/${season}/rankings/${encodeURIComponent(req.params.eventCode)}`,
+    );
+    const rows = Array.isArray(data?.rankings) ? data.rankings : [];
+    res.json(
+      rows
+        .filter((r: any) => r?.teamNumber)
+        .map((r: any) => ({
+          teamNumber: r.teamNumber,
+          rank: r.rank ?? 0,
+          rp: r.sortOrder1 ?? 0,
+          record: `${r.wins ?? 0}-${r.losses ?? 0}-${r.ties ?? 0}`,
+        })),
+    );
+  } catch (error: any) {
+    if (error?.status === 404) return res.json([]); // rankings appear after quals start
+    return sendFirstError(res, error, "event rankings");
+  }
+});
+
+router.get("/first/event/:eventCode/teams", async (req, res) => {
+  try {
+    if (!(await hasFirstKey())) return res.status(503).json({ error: FIRST_UNCONFIGURED });
+    const season = seasonFrom(req.query.season);
+    const code = encodeURIComponent(req.params.eventCode);
+    // This endpoint paginates, so a single call silently truncates a large event.
+    const collected: any[] = [];
+    let page = 1;
+    let pageTotal = 1;
+    do {
+      const data: any = await firstFetch(`/${season}/teams?eventCode=${code}&page=${page}`);
+      const teams = Array.isArray(data?.teams) ? data.teams : [];
+      collected.push(...teams);
+      pageTotal = Number(data?.pageTotal) || 1;
+      page++;
+    } while (page <= pageTotal && page <= 25); // hard stop so a bad pageTotal can't spin
+    res.json(
+      collected
+        .filter((t: any) => t?.teamNumber)
+        .map((t: any) => ({
+          team_number: t.teamNumber,
+          team_name_short: t.nameShort || "",
+          team_name: t.nameFull || t.nameShort || "",
+          city: t.city || "",
+          state_prov: t.stateProv || "",
+          country: t.country || "",
+        })),
+    );
+  } catch (error: any) {
+    return sendFirstError(res, error, "event teams");
   }
 });
 
