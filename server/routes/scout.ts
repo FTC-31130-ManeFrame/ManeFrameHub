@@ -5,7 +5,7 @@ import {
   firstFetch, hasFirstKey, currentFirstSeason,
 } from "../helpers";
 import { requireRoles } from "../middleware/auth";
-import { BUILTIN_TEMPLATES, type ScoutKind, type TemplateField } from "../../shared/scoutingTemplates";
+import { DEFAULT_TEMPLATES, type ScoutKind, type TemplateField } from "../../shared/scoutingTemplates";
 import { liveCompetitionEvents, localDatePT } from "../../utils/dates";
 import { getTeamTimezone } from "../services/teamTime";
 
@@ -17,13 +17,13 @@ const router = Router();
 const SCOUT_MANAGERS = ["Coach", "Team Captain", "SCRUM Master"];
 const requireScoutManager = requireRoles(...SCOUT_MANAGERS);
 
-/** Resolve the template a scout event uses for a kind (custom → built-in fallback). */
+/** Resolve the template a scout event uses for a kind (season template → current-game default). */
 async function resolveTemplateFields(event: any, kind: ScoutKind): Promise<TemplateField[]> {
   if (event?.seasonId) {
     const tpl = await storage.getTemplate(event.seasonId, kind);
     if (tpl?.fields?.length) return tpl.fields as TemplateField[];
   }
-  return BUILTIN_TEMPLATES[kind].fields;
+  return DEFAULT_TEMPLATES[kind].fields;
 }
 
 router.get("/scout-events", async (req, res) => {

@@ -1,26 +1,11 @@
 import React from 'react';
 import { ArrowLeft, Trophy, Calendar, Copy, Check, Download, Brain, Trash2 } from 'lucide-react';
-import { isNumericField, type TemplateField } from '../../shared/scoutingTemplates';
+import { computeAggregates, fieldValue, type TemplateField } from '../../shared/scoutingTemplates';
 
-// Value accessor: prefer the flexible `data` blob, fall back to a legacy column.
-const val = (rec: any, key: string) => (rec?.data && rec.data[key] !== undefined ? rec.data[key] : rec?.[key]);
+const val = fieldValue;
 
-// Per-field aggregate over a set of records for a template's flagged numeric
-// fields. Returns radar-ready rows {key,label,value,max,n}.
-function computeAggregates(records: any[], fields: TemplateField[]) {
-  return fields
-    .filter(f => isNumericField(f) && !f.archived && f.aggregate && f.aggregate !== 'none')
-    .map(f => {
-      const vals = records.map(r => val(r, f.key)).filter(v => typeof v === 'number') as number[];
-      let value = 0;
-      if (vals.length) {
-        if (f.aggregate === 'sum') value = vals.reduce((s, v) => s + v, 0);
-        else if (f.aggregate === 'max') value = Math.max(...vals);
-        else value = Math.round((vals.reduce((s, v) => s + v, 0) / vals.length) * 10) / 10; // avg
-      }
-      return { key: f.key, label: f.label, agg: f.aggregate!, value, n: vals.length, max: f.max, showInSummary: !!f.showInSummary };
-    });
-}
+/** Booleans read better as Yes/No than true/false in record rows. */
+const show = (v: any) => (v === true ? 'Yes' : v === false ? 'No' : v ?? '—');
 
 interface RobotDashboardProps {
   selectedRobot: any;
@@ -276,8 +261,8 @@ const RobotDashboard: React.FC<RobotDashboardProps> = ({
         const rest = aggs.filter(a => !a.showInSummary);
         const tile = (a: ReturnType<typeof computeAggregates>[number], highlight: boolean) => (
           <div key={a.key} className={`rounded-xl p-4 text-center ${highlight ? 'bg-teamColor/10' : 'bg-slate-50 dark:bg-slate-700'}`}>
-            <p className={`text-2xl font-black ${highlight ? 'text-teamColor' : 'text-slate-900 dark:text-white'}`}>{a.value}{a.max ? <span className="text-sm">/{a.max}</span> : ''}</p>
-            <p className="text-[9px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest mt-1">{a.agg === 'avg' ? 'Avg ' : a.agg === 'max' ? 'Max ' : 'Total '}{a.label}</p>
+            <p className={`text-2xl font-black ${highlight ? 'text-teamColor' : 'text-slate-900 dark:text-white'}`}>{a.display}</p>
+            <p className="text-[9px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest mt-1">{a.prefix ? `${a.prefix} ` : ''}{a.label}</p>
             <p className="text-[8px] text-slate-400 dark:text-slate-500 mt-0.5">n={a.n}</p>
           </div>
         );
@@ -303,7 +288,7 @@ const RobotDashboard: React.FC<RobotDashboardProps> = ({
                     <div className="flex items-center justify-between gap-3 flex-wrap">
                       <span className={`px-2 py-1 rounded-lg text-[9px] font-black uppercase ${m.alliance === 'Red' ? 'bg-red-600 text-white' : 'bg-blue-600 text-white'}`}>Match {m.matchNumber}</span>
                       <div className="flex flex-wrap gap-2 text-[10px] font-bold text-slate-600 dark:text-slate-400">
-                        {summary.map(a => <span key={a.key}>{a.label}: <b className="text-slate-800 dark:text-slate-200">{val(m, a.key) ?? '—'}</b></span>)}
+                        {summary.map(a => <span key={a.key}>{a.label}: <b className="text-slate-800 dark:text-slate-200">{show(val(m, a.key))}</b></span>)}
                       </div>
                       {m._scoutCount > 1 && <span className="px-2 py-0.5 bg-slate-200 text-slate-500 rounded-lg text-[8px] font-black">AVG of {m._scoutCount}</span>}
                     </div>

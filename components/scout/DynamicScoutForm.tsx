@@ -47,6 +47,18 @@ const DynamicScoutForm: React.FC<Props> = ({
     s.fields.push(f);
   }
 
+  // Required fields are enforced here, not just starred. A counter at 0 and an
+  // unanswered Yes/No are both legitimate answers, so only blanks count.
+  const isAnswered = (f: TemplateField): boolean => {
+    const v = form[f.key];
+    if (f.type === 'boolean' || f.type === 'counter') return true;
+    if (Array.isArray(v)) return v.length > 0;
+    if (f.type === 'rating') return (v || 0) > 0;
+    return v !== undefined && v !== null && v !== '' && !(typeof v === 'number' && Number.isNaN(v));
+  };
+  // Team number is the record's key, so it's always required.
+  const missing = visible.filter(f => (f.required || f.key === 'teamNumber') && !isAnswered(f));
+
   const pitAutoOptions = (teamNumber: number): string[] => {
     const scouted = pitScouts.find((p: any) => p.teamNumber === teamNumber);
     return Array.from(new Set([
@@ -120,12 +132,19 @@ const DynamicScoutForm: React.FC<Props> = ({
           <div className="space-y-1" key={f.key}>
             {label}
             <div className="flex flex-wrap gap-2">
-              {(f.options || []).map(opt => (
-                <button key={opt} type="button" onClick={() => set(f.key, opt)}
-                  className={`px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest border-2 transition-all ${val === opt ? 'border-teamColor bg-teamColor/10 text-teamColor' : 'border-slate-100 dark:border-slate-600 text-slate-400'}`}>
-                  {opt}
-                </button>
-              ))}
+              {(f.options || []).map(opt => {
+                // Alliance colors are worth keeping — scouts pick them at a glance.
+                const selected =
+                  opt === 'Red' ? 'border-red-600 bg-red-600 text-white'
+                  : opt === 'Blue' ? 'border-blue-600 bg-blue-600 text-white'
+                  : 'border-teamColor bg-teamColor/10 text-teamColor';
+                return (
+                  <button key={opt} type="button" onClick={() => set(f.key, opt)}
+                    className={`px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest border-2 transition-all ${val === opt ? selected : 'border-slate-100 dark:border-slate-600 text-slate-400'}`}>
+                    {opt}
+                  </button>
+                );
+              })}
             </div>
           </div>
         );
@@ -137,7 +156,7 @@ const DynamicScoutForm: React.FC<Props> = ({
       case 'rating':
         return <StarRating key={f.key} value={val || 0} onChange={(v) => set(f.key, v)} max={f.max || 5} label={f.label} />;
       case 'slider':
-        return <RatingSlider key={f.key} value={val || f.min || 1} onChange={(v) => set(f.key, v)} label={f.label} />;
+        return <RatingSlider key={f.key} value={val || f.min || 1} onChange={(v) => set(f.key, v)} label={f.label} min={f.min ?? 1} max={f.max ?? 10} />;
       case 'counter':
         return (
           <div className="space-y-2" key={f.key}>
@@ -194,7 +213,12 @@ const DynamicScoutForm: React.FC<Props> = ({
             </div>
           ))}
 
-          <button onClick={onSave} disabled={!form.teamNumber}
+          {missing.length > 0 && (
+            <p className="text-[10px] font-bold text-amber-600 dark:text-amber-400">
+              Still needed: {missing.map(f => f.label).join(', ')}
+            </p>
+          )}
+          <button onClick={onSave} disabled={missing.length > 0}
             className="w-full py-4 bg-teamColor text-white font-black rounded-xl uppercase tracking-widest text-xs hover:opacity-90 shadow-lg transition-all disabled:opacity-50">
             {saveLabel || (editing ? 'Update' : 'Save')}
           </button>

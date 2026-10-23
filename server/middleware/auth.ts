@@ -47,6 +47,7 @@ function guestAllowed(method: string, path: string): boolean {
     /^\/scout\/events\/\d+\/export\.csv$/.test(path) ||
     /^\/scout\/team\//.test(path) ||
     /^\/events\/\d+\/(team-claims|match-exceptions)$/.test(path) ||
+    /^\/seasons\/\d+\/templates$/.test(path) ||   // field labels for rendering scouting data
     /^\/(tba|toa|nexus)\//.test(path)            // read-only third-party proxies for viewing
   );
 }

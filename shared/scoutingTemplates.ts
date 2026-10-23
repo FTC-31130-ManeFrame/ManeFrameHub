@@ -39,8 +39,9 @@ export interface TemplateField {
   // routines) rather than a fixed `options` list, and which allows free text.
   dynamicOptions?: 'pitAutoRoutines';
   allowCustom?: boolean;
-  // Analytics hints (numeric/counter/rating/slider only):
-  aggregate?: 'avg' | 'sum' | 'max' | 'none';
+  // Analytics hints. Numeric types take avg/sum/max; booleans take 'rate'
+  // (share of records answered Yes — e.g. how often a robot parks).
+  aggregate?: 'avg' | 'sum' | 'max' | 'rate' | 'none';
   showInSummary?: boolean; // show on the robot summary card
   rankMetric?: boolean;    // default sort/ranking metric
   // Soft-delete:
@@ -59,6 +60,53 @@ export const NUMERIC_FIELD_TYPES: FieldType[] = ['number', 'counter', 'rating', 
 
 export function isNumericField(f: TemplateField): boolean {
   return NUMERIC_FIELD_TYPES.includes(f.type);
+}
+
+/** A record's value for a field: the `data` blob first, then a legacy column. */
+export function fieldValue(rec: any, key: string): any {
+  return rec?.data && rec.data[key] !== undefined ? rec.data[key] : rec?.[key];
+}
+
+export interface FieldAggregate {
+  key: string;
+  label: string;
+  agg: NonNullable<TemplateField['aggregate']>;
+  value: number;
+  /** Ready to show: "4.5", "4/5", "80%". */
+  display: string;
+  /** "Avg", "Best", "Total" or "" for a rate. */
+  prefix: string;
+  n: number;
+  showInSummary: boolean;
+  rankMetric: boolean;
+}
+
+/** Aggregate every field flagged with a stat over a set of records. */
+export function computeAggregates(records: any[], fields: TemplateField[]): FieldAggregate[] {
+  return fields
+    .filter(f => !f.archived && f.aggregate && f.aggregate !== 'none')
+    .filter(f => (f.aggregate === 'rate' ? f.type === 'boolean' : isNumericField(f)))
+    .map(f => {
+      const agg = f.aggregate!;
+      let value = 0;
+      let n = 0;
+      if (agg === 'rate') {
+        const answers = records.map(r => fieldValue(r, f.key)).filter(v => typeof v === 'boolean');
+        n = answers.length;
+        value = n ? Math.round((answers.filter(Boolean).length / n) * 100) : 0;
+      } else {
+        const vals = records.map(r => fieldValue(r, f.key)).filter(v => typeof v === 'number' && !Number.isNaN(v)) as number[];
+        n = vals.length;
+        if (n) {
+          if (agg === 'sum') value = vals.reduce((s, v) => s + v, 0);
+          else if (agg === 'max') value = Math.max(...vals);
+          else value = Math.round((vals.reduce((s, v) => s + v, 0) / n) * 10) / 10;
+        }
+      }
+      const display = agg === 'rate' ? `${value}%` : f.type === 'rating' && f.max ? `${value}/${f.max}` : String(value);
+      const prefix = agg === 'rate' ? '' : agg === 'max' ? 'Best' : agg === 'sum' ? 'Total' : 'Avg';
+      return { key: f.key, label: f.label, agg, value, display, prefix, n, showInSummary: !!f.showInSummary, rankMetric: !!f.rankMetric };
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -120,6 +168,100 @@ export const BUILTIN_TEMPLATES: Record<ScoutKind, ScoutingTemplateShape> = {
   pit: { kind: 'pit', name: 'Built-in Pit (Legacy)', fields: BUILTIN_PIT_FIELDS },
   match: { kind: 'match', name: 'Built-in Match (Legacy)', fields: BUILTIN_MATCH_FIELDS },
 };
+
+// ---------------------------------------------------------------------------
+// Game presets. BUILTIN_* above is frozen: it is the legacy column mapping and
+// must not change. Presets are what new seasons and the template builder start
+// from. Keys shared with the built-ins reuse the built-in type deliberately, so
+// switching a season to a preset carries those fields' old data forward.
+//
+// BIOBUZZ (FTC 2026–27) fields follow the official Competition Manual §10.5
+// (TU05): LEAVE 3 / AUTO PARK 5 / HIVE TIP 20 (auto+teleop) / POLLEN-NECTAR
+// left in an upward CELL 2 / owned FLOWER 2 each / Bottom NECTAR Bonus 5 /
+// GARDEN 1 / end PARK 5; SWARM RP = LEAVE+PARK points ≥ 16, POLLINATOR RPs =
+// HIVE TIPS ≥ 4 and ≥ 7. Scouting tracks per-robot contributions to those.
+// ---------------------------------------------------------------------------
+
+const MATCH_IDENTITY_FIELDS: TemplateField[] = BUILTIN_MATCH_FIELDS.filter(f => f.identity);
+const PIT_IDENTITY_FIELDS: TemplateField[] = BUILTIN_PIT_FIELDS.filter(f => f.identity);
+const builtin = (fields: TemplateField[], key: string) => fields.find(f => f.key === key)!;
+
+export const BIOBUZZ_MATCH_FIELDS: TemplateField[] = [
+  ...MATCH_IDENTITY_FIELDS,
+  builtin(BUILTIN_MATCH_FIELDS, 'autoUsed'),
+  { key: 'autoLeave', label: 'Left the Wall (LEAVE)', type: 'boolean', aggregate: 'rate', showInSummary: true, section: 'Auto' },
+  { key: 'autoPark', label: 'Parked in Loading Zone (AUTO PARK)', type: 'boolean', aggregate: 'rate', section: 'Auto' },
+  { key: 'autoLaunched', label: 'Auto Pollen Launched into Cell', type: 'counter', min: 0, aggregate: 'avg', showInSummary: true, section: 'Auto' },
+  { key: 'autoTips', label: 'Auto Hive Tips', type: 'counter', min: 0, aggregate: 'avg', section: 'Auto' },
+  { key: 'teleopLaunched', label: 'Tele-Op Pollen Launched into Cell', type: 'counter', min: 0, quickAdd: [5], aggregate: 'avg', showInSummary: true, rankMetric: true, section: 'Tele-Op' },
+  { key: 'teleopTips', label: 'Tele-Op Hive Tips', type: 'counter', min: 0, aggregate: 'avg', showInSummary: true, section: 'Tele-Op' },
+  { key: 'gardenPlaced', label: 'Pollen / Nectar into Garden', type: 'counter', min: 0, aggregate: 'avg', section: 'Tele-Op' },
+  { key: 'flowerPlaced', label: 'Pollen / Nectar into Flowers (last 60s)', type: 'counter', min: 0, aggregate: 'avg', showInSummary: true, section: 'Endgame' },
+  { key: 'flowerOwned', label: 'Placed the Top Nectar (owned a Flower)', type: 'boolean', aggregate: 'rate', section: 'Endgame' },
+  { key: 'endPark', label: 'Parked in Loading Zone at End', type: 'boolean', aggregate: 'rate', showInSummary: true, section: 'Endgame' },
+  { key: 'launchAccuracy', label: 'Launch Accuracy (1 = always misses → 5 = always hits)', type: 'rating', max: 5, aggregate: 'avg', section: 'Ratings' },
+  builtin(BUILTIN_MATCH_FIELDS, 'drivingSkillRating'),
+  builtin(BUILTIN_MATCH_FIELDS, 'penalties'),
+  builtin(BUILTIN_MATCH_FIELDS, 'notes'),
+];
+
+export const BIOBUZZ_PIT_FIELDS: TemplateField[] = [
+  ...PIT_IDENTITY_FIELDS,
+  { ...builtin(BUILTIN_PIT_FIELDS, 'drivetrain'), options: ['Mecanum', 'Tank', 'Swerve', 'X-Drive', 'Other'] },
+  { key: 'canLaunch', label: 'Can launch into Cells', type: 'boolean', section: 'Capabilities' },
+  { key: 'canFlower', label: 'Can place into Flowers', type: 'boolean', section: 'Capabilities' },
+  { key: 'canGarden', label: 'Can score in the Garden', type: 'boolean', section: 'Capabilities' },
+  { key: 'reliablePark', label: 'Reliably parks in the Loading Zone', type: 'boolean', section: 'Capabilities' },
+  { key: 'cycleTime', label: 'Estimated cycle time (seconds)', type: 'number', aggregate: 'avg', section: 'Capabilities' },
+  { ...builtin(BUILTIN_PIT_FIELDS, 'autoOptions'), label: 'Auto Routines', section: 'Autonomous', placeholder: 'Add a routine and press Enter', archived: undefined },
+  builtin(BUILTIN_PIT_FIELDS, 'autonomousRoutine'),
+  builtin(BUILTIN_PIT_FIELDS, 'capabilities'),
+  builtin(BUILTIN_PIT_FIELDS, 'deficiencies'),
+  builtin(BUILTIN_PIT_FIELDS, 'photoUrl'),
+  builtin(BUILTIN_PIT_FIELDS, 'offenseRating'),
+  builtin(BUILTIN_PIT_FIELDS, 'defenseRating'),
+  builtin(BUILTIN_PIT_FIELDS, 'overallRating'),
+  builtin(BUILTIN_PIT_FIELDS, 'coreValuesRating'),
+  builtin(BUILTIN_PIT_FIELDS, 'notes'),
+];
+
+export interface ScoutingPreset {
+  id: string;
+  label: string;
+  fields: Record<ScoutKind, TemplateField[]>;
+}
+
+export const SCOUTING_PRESETS: ScoutingPreset[] = [
+  { id: 'biobuzz', label: 'BIOBUZZ — FTC 2026–27', fields: { pit: BIOBUZZ_PIT_FIELDS, match: BIOBUZZ_MATCH_FIELDS } },
+  { id: 'blank', label: 'Blank (identity fields only)', fields: { pit: PIT_IDENTITY_FIELDS, match: MATCH_IDENTITY_FIELDS } },
+];
+
+/** What a new season starts with, and what an event with no season scouts with. */
+export const DEFAULT_PRESET_ID = 'biobuzz';
+export const DEFAULT_TEMPLATES: Record<ScoutKind, ScoutingTemplateShape> = {
+  pit: { kind: 'pit', name: 'BIOBUZZ Pit', fields: BIOBUZZ_PIT_FIELDS },
+  match: { kind: 'match', name: 'BIOBUZZ Match', fields: BIOBUZZ_MATCH_FIELDS },
+};
+
+/**
+ * Switch a template to a preset without breaking its existing records. Keys are
+ * permanent, so a previously saved field the preset doesn't use is archived
+ * rather than dropped, and a saved field always keeps its saved type even when
+ * the preset defines that key differently — old `data` blobs stay readable.
+ */
+export function applyPreset(saved: TemplateField[], preset: TemplateField[]): TemplateField[] {
+  const savedByKey = new Map(saved.map(f => [f.key, f]));
+  const presetKeys = new Set(preset.map(f => f.key));
+  const fields: TemplateField[] = preset.map(p => {
+    const prev = savedByKey.get(p.key);
+    const base = prev && prev.type !== p.type ? prev : p;
+    return { ...base, archived: undefined, archivedAt: undefined };
+  });
+  for (const f of saved) {
+    if (!presetKeys.has(f.key)) fields.push({ ...f, archived: true, archivedAt: f.archivedAt ?? Date.now() });
+  }
+  return fields;
+}
 
 // The two legacy match columns `defense_rating` / `core_values_rating` collide
 // by camelCase name with pit keys but, more importantly, are not collected by

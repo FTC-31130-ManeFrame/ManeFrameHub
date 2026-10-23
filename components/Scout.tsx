@@ -10,25 +10,19 @@ import { getOfflineQueue, addToOfflineQueue, syncOfflineQueue, type OfflineMatch
 import { ROLE_COLORS } from '../constants';
 import { Counter, StarRating, RatingSlider, TagInput } from './scout/shared';
 import RobotDashboard from './scout/RobotDashboard';
-import PitScoutForm from './scout/PitScoutForm';
-import MatchScoutForm from './scout/MatchScoutForm';
 import ScoutQR from './scout/ScoutQR';
 import PitDisplay from './scout/PitDisplay';
 import PitMap from './scout/PitMap';
 import ScoutEventList from './scout/ScoutEventList';
 import SeasonManager from './scout/SeasonManager';
 import DynamicScoutForm from './scout/DynamicScoutForm';
-import { BUILTIN_TEMPLATES, isNumericField, type TemplateField, type ScoutKind } from '../shared/scoutingTemplates';
+import { DEFAULT_TEMPLATES, isNumericField, type TemplateField, type ScoutKind } from '../shared/scoutingTemplates';
 
-// A template is "custom" (→ dynamic form) when its active field keys differ from
-// the built-in set for its kind; the built-in/legacy template keeps the proven
-// hand-built forms.
-function isCustomTemplate(tpl: any, kind: ScoutKind): boolean {
-  if (!tpl?.fields?.length) return false;
-  const builtin = new Set(BUILTIN_TEMPLATES[kind].fields.filter(f => !f.archived).map(f => f.key));
-  const active = (tpl.fields as TemplateField[]).filter(f => !f.archived).map(f => f.key);
-  if (active.length !== builtin.size) return true;
-  return active.some(k => !builtin.has(k));
+// Scouting always renders from a template: the event's season template, or the
+// current game's default when the event has no season (or its season has none).
+// The old hand-built forms only ever showed one FRC game's fields.
+function effectiveTemplate(tpl: any, kind: ScoutKind): { id?: number; name: string; fields: TemplateField[] } {
+  return tpl?.fields?.length ? tpl : DEFAULT_TEMPLATES[kind];
 }
 
 // Build an empty form (defaults per field type) for a custom template so custom
@@ -80,6 +74,8 @@ const Scout: React.FC<ScoutProps> = ({ currentUser }) => {
   const [showSeasonManager, setShowSeasonManager] = useState(false);
   const [activePitTemplate, setActivePitTemplate] = useState<any | null>(null);
   const [activeMatchTemplate, setActiveMatchTemplate] = useState<any | null>(null);
+  const pitTemplate = effectiveTemplate(activePitTemplate, 'pit');
+  const matchTemplate = effectiveTemplate(activeMatchTemplate, 'match');
   const [eventSeasonFilter, setEventSeasonFilter] = useState<number | 'all'>('all');
 
   const [eventForm, setEventForm] = useState<any>({ name: '', location: '', startDate: '', endDate: '', tbaEventKey: '', nexusEventKey: '', toaEventKey: '', seasonId: undefined });
@@ -90,21 +86,8 @@ const Scout: React.FC<ScoutProps> = ({ currentUser }) => {
   const [tbaRankings, setTbaRankings] = useState<Map<number, { rank: number; rp: number; record: string }>>(new Map());
   const [pitSubTab, setPitSubTab] = useState<'live' | 'rankings'>('live');
 
-  const [pitForm, setPitForm] = useState<Record<string, any>>({
-    teamNumber: 0, teamName: '', robotName: '', drivetrain: '', weight: 0, speed: 0, height: 0,
-    fuelCapacity: 0, traversalAbility: '', shooterType: '',
-    capabilities: [] as string[], deficiencies: [] as string[],
-    autonomousRoutine: 'None', autoOptions: [] as string[],
-    notes: '', offenseRating: 5, defenseRating: 5, overallRating: 5, coreValuesRating: 3, photoUrl: ''
-  });
-
-  const [matchForm, setMatchForm] = useState<Record<string, any>>({
-    matchNumber: 1, matchType: 'qualification', teamNumber: 0, alliance: 'Red',
-    penalties: 0, autoClimb: false, endClimbLevel: 0, coralScored: 0, algaeScored: 0,
-    autoFuelTotal: 0, teleopFuelTotal: 0,
-    defenseRating: 3, drivingSkillRating: 3,
-    autoUsed: '', notes: ''
-  });
+  const [pitForm, setPitForm] = useState<Record<string, any>>(() => defaultFormFromTemplate(DEFAULT_TEMPLATES.pit));
+  const [matchForm, setMatchForm] = useState<Record<string, any>>(() => defaultFormFromTemplate(DEFAULT_TEMPLATES.match));
 
   const [matchClaims, setMatchClaims] = useState<Record<string, { userId: number; userName: string }>>(() => {
     try { return JSON.parse(localStorage.getItem(`piobyte_claims`) || '{}'); } catch { return {}; }
@@ -944,47 +927,14 @@ const Scout: React.FC<ScoutProps> = ({ currentUser }) => {
     }
   };
 
-  const resetPitForm = () => {
-    if (isCustomTemplate(activePitTemplate, 'pit')) { setPitForm(defaultFormFromTemplate(activePitTemplate)); return; }
-    setPitForm({
-      teamNumber: 0, teamName: '', robotName: '', drivetrain: '', weight: 0, speed: 0, height: 0,
-      fuelCapacity: 0, traversalAbility: '', shooterType: '',
-      capabilities: [], deficiencies: [], autonomousRoutine: 'None', autoOptions: [],
-      notes: '', offenseRating: 5, defenseRating: 5, overallRating: 5, coreValuesRating: 3, photoUrl: ''
-    });
-  };
+  const resetPitForm = () => setPitForm(defaultFormFromTemplate(pitTemplate));
 
-  const resetMatchForm = () => {
-    if (isCustomTemplate(activeMatchTemplate, 'match')) { setMatchForm(defaultFormFromTemplate(activeMatchTemplate)); return; }
-    setMatchForm({
-      matchNumber: 0, matchType: 'qualification', teamNumber: 0, alliance: 'Red',
-      penalties: 0, autoClimb: false, endClimbLevel: 0, coralScored: 3, algaeScored: 0,
-      autoFuelTotal: 0, teleopFuelTotal: 0,
-      defenseRating: 3, drivingSkillRating: 3,
-      autoUsed: '', notes: ''
-    });
-  };
+  const resetMatchForm = () => setMatchForm(defaultFormFromTemplate(matchTemplate));
 
   const openEditPit = (pit: any) => {
     setSelectedRobot(null);
     setEditingPit(pit);
-    if (isCustomTemplate(activePitTemplate, 'pit')) {
-      setPitForm({ ...defaultFormFromTemplate(activePitTemplate), ...(pit.data || {}) });
-      setShowPitForm(true);
-      return;
-    }
-    setPitForm({
-      teamNumber: pit.teamNumber, teamName: pit.teamName, robotName: pit.robotName,
-      drivetrain: pit.drivetrain, weight: pit.weight || 0, speed: pit.speed || 0, height: pit.height || 0,
-      fuelCapacity: pit.fuelCapacity || 0, traversalAbility: pit.traversalAbility || '',
-      shooterType: pit.shooterType || '',
-      capabilities: pit.capabilities || [], deficiencies: pit.deficiencies || [],
-      autonomousRoutine: pit.autonomousRoutine || 'None', autoOptions: pit.autoOptions || [],
-      notes: pit.notes || '',
-      offenseRating: pit.offenseRating, defenseRating: pit.defenseRating, overallRating: pit.overallRating,
-      coreValuesRating: pit.coreValuesRating ?? 3,
-      photoUrl: pit.photoUrl || ''
-    });
+    setPitForm({ ...defaultFormFromTemplate(pitTemplate), ...(pit.data || {}) });
     setShowPitForm(true);
   };
 
@@ -1017,20 +967,7 @@ const Scout: React.FC<ScoutProps> = ({ currentUser }) => {
 
   const openEditMatch = (match: any) => {
     setEditingMatch(match);
-    if (isCustomTemplate(activeMatchTemplate, 'match')) {
-      setMatchForm({ ...defaultFormFromTemplate(activeMatchTemplate), ...(match.data || {}) });
-      setShowMatchForm(true);
-      return;
-    }
-    setMatchForm({
-      matchNumber: match.matchNumber, matchType: match.matchType || 'qualification',
-      teamNumber: match.teamNumber, alliance: match.alliance,
-      penalties: match.penalties, autoClimb: match.autoClimb, endClimbLevel: match.endClimbLevel,
-      coralScored: match.coralScored, algaeScored: match.algaeScored,
-      autoFuelTotal: match.autoFuelTotal || 0, teleopFuelTotal: match.teleopFuelTotal || 0,
-      defenseRating: match.defenseRating || 3, drivingSkillRating: match.drivingSkillRating || 3,
-      autoUsed: match.autoUsed || '', notes: match.notes
-    });
+    setMatchForm({ ...defaultFormFromTemplate(matchTemplate), ...(match.data || {}) });
     setShowMatchForm(true);
   };
 
@@ -1564,11 +1501,10 @@ const Scout: React.FC<ScoutProps> = ({ currentUser }) => {
       arr.push(m);
       grouped.set(key, arr);
     }
-    // Consensus-average every numeric field defined by the active match template
-    // (falls back to built-in). Averages are written to both the `data` blob and
-    // the mirrored top-level key so all readers agree. This also fixes the old
-    // bug where auto/teleop fuel were omitted from multi-scout consensus.
-    const numericFields = ((activeMatchTemplate?.fields || BUILTIN_TEMPLATES.match.fields) as TemplateField[])
+    // Consensus-average every numeric field defined by the event's match
+    // template. Averages are written to both the `data` blob and the mirrored
+    // top-level key so all readers agree.
+    const numericFields = (matchTemplate.fields as TemplateField[])
       .filter(f => isNumericField(f) && !f.archived);
     return Array.from(grouped.entries()).map(([_key, entries]) => {
       if (entries.length === 1) return entries[0];
@@ -1586,7 +1522,7 @@ const Scout: React.FC<ScoutProps> = ({ currentUser }) => {
       merged.autoClimb = entries.some(e => e.autoClimb);
       return merged;
     });
-  }, [selectedRobot, matchScoutsData, activeMatchTemplate]);
+  }, [selectedRobot, matchScoutsData, matchTemplate]);
 
   const teamNamesMap = useMemo(() => {
     const m: Record<string, string> = {};
@@ -1619,10 +1555,10 @@ const Scout: React.FC<ScoutProps> = ({ currentUser }) => {
         selectedRobot={selectedRobot}
         activeEvent={activeEvent}
         robotMatches={robotMatches}
-        matchTemplate={activeMatchTemplate}
-        pitTemplate={activePitTemplate}
-        isCustomMatch={isCustomTemplate(activeMatchTemplate, 'match')}
-        isCustomPit={isCustomTemplate(activePitTemplate, 'pit')}
+        matchTemplate={matchTemplate}
+        pitTemplate={pitTemplate}
+        isCustomMatch
+        isCustomPit
         crossEventMatches={crossEventMatches}
         tbaYearEvents={tbaYearEvents}
         tbaYearStatuses={tbaYearStatuses}
@@ -2141,7 +2077,7 @@ const Scout: React.FC<ScoutProps> = ({ currentUser }) => {
                                 >TBA</a>
                                 {!isGuest && (
                                   <button
-                                    onClick={() => { setPitForm((f: any) => ({ ...f, teamNumber: n })); setShowPitForm(true); }}
+                                    onClick={() => { resetPitForm(); setEditingPit(null); setPitForm((f: any) => ({ ...f, teamNumber: n })); setShowPitForm(true); }}
                                     className="text-[8px] font-black text-rose-600 hover:text-rose-800 uppercase tracking-wide"
                                   >+ Scout</button>
                                 )}
@@ -3178,68 +3114,36 @@ const Scout: React.FC<ScoutProps> = ({ currentUser }) => {
           </div>
         ) : null}
 
-        {isCustomTemplate(activePitTemplate, 'pit') ? (
-          <DynamicScoutForm
-            show={showPitForm}
-            title={editingPit ? 'Edit Robot' : 'Scout Robot'}
-            subtitle={activePitTemplate?.name || 'Pit scouting form'}
-            fields={activePitTemplate.fields}
-            form={pitForm}
-            setForm={setPitForm as any}
-            onClose={() => { setShowPitForm(false); setEditingPit(null); }}
-            onSave={handleSavePitScout}
-            editing={!!editingPit}
-            saveLabel={editingPit ? 'Update' : 'Save Scout'}
-            compressImage={compressImage}
-          />
-        ) : (
-          <PitScoutForm
-            show={showPitForm}
-            editingPit={editingPit}
-            pitForm={pitForm}
-            setPitForm={setPitForm}
-            onClose={() => { setShowPitForm(false); setEditingPit(null); }}
-            onSave={handleSavePitScout}
-            compressImage={compressImage}
-            isFtcEvent={!!activeEvent?.toaEventKey}
-            onFetchToaPhoto={async (teamNumber: number) => {
-              const teamKey = `ftc${teamNumber}`;
-              return api.toa.getTeamMedia(teamKey);
-            }}
-          />
-        )}
+        <DynamicScoutForm
+          show={showPitForm}
+          title={editingPit ? 'Edit Robot' : 'Scout Robot'}
+          subtitle={pitTemplate.name || 'Pit scouting form'}
+          fields={pitTemplate.fields}
+          form={pitForm}
+          setForm={setPitForm as any}
+          onClose={() => { setShowPitForm(false); setEditingPit(null); }}
+          onSave={handleSavePitScout}
+          editing={!!editingPit}
+          saveLabel={editingPit ? 'Update' : 'Save Scout'}
+          compressImage={compressImage}
+        />
 
-
-        {isCustomTemplate(activeMatchTemplate, 'match') ? (
-          <DynamicScoutForm
-            show={showMatchForm}
-            title={editingMatch ? 'Edit Match' : 'Record Match'}
-            subtitle={activeMatchTemplate?.name || 'Match scouting form'}
-            fields={activeMatchTemplate.fields}
-            form={matchForm}
-            setForm={setMatchForm as any}
-            onClose={() => {
-              if (activeTeamClaimRef.current) unclaimTeam(activeTeamClaimRef.current.matchKey, activeTeamClaimRef.current.teamNumber);
-              setShowMatchForm(false); setEditingMatch(null);
-            }}
-            onSave={handleSaveMatchScout}
-            editing={!!editingMatch}
-            saveLabel={editingMatch ? 'Update Match' : 'Save Match'}
-            pitScouts={pitScouts}
-          />
-        ) : (
-          <MatchScoutForm
-            show={showMatchForm}
-            editingMatch={editingMatch}
-            matchForm={matchForm}
-            setMatchForm={setMatchForm}
-            onClose={() => { setShowMatchForm(false); setEditingMatch(null); }}
-            onSave={handleSaveMatchScout}
-            pitScouts={pitScouts}
-            activeTeamClaimRef={activeTeamClaimRef}
-            onUnclaim={unclaimTeam}
-          />
-        )}
+        <DynamicScoutForm
+          show={showMatchForm}
+          title={editingMatch ? 'Edit Match' : 'Record Match'}
+          subtitle={matchTemplate.name || 'Match scouting form'}
+          fields={matchTemplate.fields}
+          form={matchForm}
+          setForm={setMatchForm as any}
+          onClose={() => {
+            if (activeTeamClaimRef.current) unclaimTeam(activeTeamClaimRef.current.matchKey, activeTeamClaimRef.current.teamNumber);
+            setShowMatchForm(false); setEditingMatch(null);
+          }}
+          onSave={handleSaveMatchScout}
+          editing={!!editingMatch}
+          saveLabel={editingMatch ? 'Update Match' : 'Save Match'}
+          pitScouts={pitScouts}
+        />
 
         {nexusToast && (
           <div className={`fixed top-6 right-6 z-[400] px-5 py-3 rounded-2xl shadow-2xl flex items-center gap-3 animate-in fade-in slide-in-from-top-2 duration-300 ${

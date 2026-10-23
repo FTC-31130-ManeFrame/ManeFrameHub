@@ -54,16 +54,18 @@ export const RatingSlider: React.FC<{
   value: number;
   onChange: (v: number) => void;
   label: string;
-}> = ({ value, onChange, label }) => (
+  min?: number;
+  max?: number;
+}> = ({ value, onChange, label, min = 1, max = 10 }) => (
   <div className="flex flex-col gap-2">
     <div className="flex justify-between items-center">
       <span className="text-[9px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">{label}</span>
-      <span className="text-sm font-black text-teamColor">{value}/10</span>
+      <span className="text-sm font-black text-teamColor">{value}/{max}</span>
     </div>
     <input
       type="range"
-      min={1}
-      max={10}
+      min={min}
+      max={max}
       value={value}
       onChange={(e) => onChange(parseInt(e.target.value))}
       className="w-full"

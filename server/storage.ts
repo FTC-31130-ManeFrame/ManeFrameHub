@@ -2,7 +2,7 @@ import crypto from "crypto";
 import { db } from "./db";
 import { hashPassword } from "./security";
 import { users, projects, tasks, notifications, announcements, generalTasks, timeEntries, timeEntryAudit, timeEntryTaskSegments, scoutEvents, pitScouts, matchScouts, competitionAssignments, eventInfo, competitionCheckins, competitionCheckinAudit, fullscreenAlerts, teamClaims, certifications, userCertifications, certificationRequests, trainerScopes, badgeDefinitions, userBadges, calendarEvents, resources, matchExceptions, teamSettings, guestTokens, calendarFeedTokens, recurringTaskTemplates, eventSignups, fundraisingEntries, seasons, scoutingTemplates } from "../shared/schema";
-import { BUILTIN_TEMPLATES, dataFromLegacyRow, legacyColumnsFromData, type ScoutKind } from "../shared/scoutingTemplates";
+import { BUILTIN_TEMPLATES, DEFAULT_TEMPLATES, dataFromLegacyRow, legacyColumnsFromData, type ScoutKind } from "../shared/scoutingTemplates";
 import { sameDepartment, newlyEarnedLevelBadges, normalizeLevel, MAX_LEVEL, type EarnedLevelBadge } from "../shared/certifications";
 
 /**
@@ -838,6 +838,16 @@ export class DatabaseStorage implements IStorage {
       active: data.active ?? false,
     }).returning();
     if (row.active) await db.update(seasons).set({ active: false }).where(sql`${seasons.id} <> ${row.id}`);
+    // Start every new season with the current game's templates so scouting
+    // works before anyone opens the template builder.
+    for (const kind of ["pit", "match"] as const) {
+      await this.createTemplate({
+        seasonId: row.id,
+        kind,
+        name: `${row.name} ${DEFAULT_TEMPLATES[kind].name}`,
+        fields: DEFAULT_TEMPLATES[kind].fields,
+      });
+    }
     return row;
   }
 
