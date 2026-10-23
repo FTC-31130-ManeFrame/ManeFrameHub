@@ -5,9 +5,9 @@ interface ScoutEventListProps {
   events: any[];
   isCoachOrCaptain: boolean;
   eventCounts: Record<number, { pits: number; matches: number }>;
-  nexusToast: { type: 'ok' | 'error'; msg: string } | null;
-  onDismissNexusToast: () => void;
   onCreateEvent: () => void;
+  /** Opens the FIRST import picker — the normal way to add a competition. */
+  onImportFirst: () => void;
   onEnterEvent: (evt: any) => void;
   onDeleteEvent: (id: number) => void;
   showEventForm: boolean;
@@ -26,8 +26,8 @@ interface ScoutEventListProps {
 }
 
 const ScoutEventList: React.FC<ScoutEventListProps> = ({
-  events, isCoachOrCaptain, eventCounts, nexusToast, onDismissNexusToast,
-  onCreateEvent, onEnterEvent, onDeleteEvent, showEventForm,
+  events, isCoachOrCaptain, eventCounts,
+  onCreateEvent, onImportFirst, onEnterEvent, onDeleteEvent, showEventForm,
   eventForm, setEventForm,
   onCreateEventSubmit, onCloseEventForm, geminiModal, copiedGemini,
   onSetGeminiModal, onSetCopiedGemini,
@@ -56,9 +56,13 @@ const ScoutEventList: React.FC<ScoutEventListProps> = ({
                 <Layers size={16} /> Seasons
               </button>
             )}
-            <button onClick={onCreateEvent}
+            <button onClick={onCreateEvent} title="For scrimmages and events not in FIRST's system"
+              className="flex items-center justify-center gap-2 px-5 py-3 bg-white dark:bg-slate-800 border-2 border-slate-100 dark:border-slate-700 text-slate-600 dark:text-slate-300 font-black rounded-xl hover:border-teamColor hover:text-teamColor transition-all uppercase text-[10px] tracking-widest">
+              <Plus size={16} /> Manual
+            </button>
+            <button onClick={onImportFirst}
               className="flex items-center justify-center gap-2 px-6 py-3 bg-teamColor text-white font-black rounded-xl hover:opacity-90 shadow-lg shadow-teamColor/20 transition-all uppercase text-[10px] tracking-widest">
-              <Plus size={16} /> Create Event
+              <Download size={16} /> Import FTC Event
             </button>
             </>
           )}
@@ -91,7 +95,10 @@ const ScoutEventList: React.FC<ScoutEventListProps> = ({
                 <Calendar size={12} /> {evt.startDate}{evt.endDate && ` — ${evt.endDate}`}
               </div>
             )}
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
+              {evt.eventCode && (
+                <span className="px-2 py-1 bg-teamColor/10 text-teamColor rounded-lg text-[9px] font-black">{evt.eventCode}</span>
+              )}
               <span className="px-2 py-1 bg-slate-50 text-slate-500 rounded-lg text-[9px] font-black border border-slate-100 dark:border-slate-700">
                 {eventCounts[evt.id]?.pits || 0} robots
               </span>
@@ -108,18 +115,8 @@ const ScoutEventList: React.FC<ScoutEventListProps> = ({
           <Trophy size={56} className="text-slate-200 mx-auto mb-4" />
           <p className="text-xl font-black text-slate-300 uppercase tracking-tight">No Events Yet</p>
           <p className="text-slate-400 dark:text-slate-500 text-sm mt-1">
-            {isCoachOrCaptain ? 'Create your first tournament event to start scouting' : 'Ask a Coach or Captain to create an event'}
+            {isCoachOrCaptain ? 'Import an FTC event from FIRST to start scouting' : 'Ask a Coach or Captain to import an event'}
           </p>
-        </div>
-      )}
-
-      {nexusToast && (
-        <div className={`fixed top-6 right-6 z-[400] px-5 py-3 rounded-2xl shadow-2xl flex items-center gap-3 animate-in fade-in slide-in-from-top-2 duration-300 ${
-          nexusToast.type === 'ok' ? 'bg-green-600 text-white' : 'bg-red-600 text-white'
-        }`}>
-          {nexusToast.type === 'ok' ? <Check size={16} /> : <AlertCircle size={16} />}
-          <span className="font-black text-sm">{nexusToast.msg}</span>
-          <button onClick={onDismissNexusToast} className="ml-2 opacity-70 hover:opacity-100"><X size={14} /></button>
         </div>
       )}
 
@@ -173,25 +170,11 @@ const ScoutEventList: React.FC<ScoutEventListProps> = ({
                 </div>
               </div>
               <div className="space-y-2">
-                <label className="block text-[9px] md:text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest ml-2">TBA Event Key <span className="normal-case font-normal text-slate-400">(FRC)</span></label>
-                <input value={eventForm.tbaEventKey} onChange={(e) => setEventForm({ ...eventForm, tbaEventKey: e.target.value })}
-                  placeholder="e.g. 2026azgl"
-                  className="w-full p-4 bg-slate-50 dark:bg-slate-700 border-2 border-slate-100 dark:border-slate-600 rounded-xl md:rounded-[28px] outline-none focus:border-teamColor transition-all font-bold text-sm" />
-                <p className="text-[9px] text-slate-400 dark:text-slate-500 font-medium ml-2">Find on thebluealliance.com — enables match schedule & rankings (optional)</p>
-              </div>
-              <div className="space-y-2">
-                <label className="block text-[9px] md:text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest ml-2">Nexus Event Key <span className="normal-case font-normal text-slate-400">(FRC)</span></label>
-                <input value={eventForm.nexusEventKey || ''} onChange={(e) => setEventForm({ ...eventForm, nexusEventKey: e.target.value })}
-                  placeholder="e.g. 2026azgl"
-                  className="w-full p-4 bg-slate-50 dark:bg-slate-700 border-2 border-slate-100 dark:border-slate-600 rounded-xl md:rounded-[28px] outline-none focus:border-violet-500 transition-all font-bold text-sm" />
-                <p className="text-[9px] text-slate-400 dark:text-slate-500 font-medium ml-2">Same as TBA key for most events — differs at Championships (optional)</p>
-              </div>
-              <div className="space-y-2">
-                <label className="block text-[9px] md:text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest ml-2">FTC Event Key (TOA)</label>
-                <input value={eventForm.toaEventKey || ''} onChange={(e) => setEventForm({ ...eventForm, toaEventKey: e.target.value })}
-                  placeholder="e.g. 2425-FIM-AAFLI"
-                  className="w-full p-4 bg-slate-50 dark:bg-slate-700 border-2 border-slate-100 dark:border-slate-600 rounded-xl md:rounded-[28px] outline-none focus:border-orange-500 transition-all font-bold text-sm" />
-                <p className="text-[9px] text-slate-400 dark:text-slate-500 font-medium ml-2">TOA key for FTC events — find it on theorangealliance.org (optional)</p>
+                <label className="block text-[9px] md:text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest ml-2">FIRST Event Code <span className="normal-case font-normal text-slate-400">(optional)</span></label>
+                <input value={eventForm.eventCode || ''} onChange={(e) => setEventForm({ ...eventForm, eventCode: e.target.value.toUpperCase() })}
+                  placeholder="e.g. USCAFFFAQ"
+                  className="w-full p-4 bg-slate-50 dark:bg-slate-700 border-2 border-slate-100 dark:border-slate-600 rounded-xl md:rounded-[28px] outline-none focus:border-teamColor transition-all font-bold text-sm uppercase dark:text-white" />
+                <p className="text-[9px] text-slate-400 dark:text-slate-500 font-medium ml-2">For events already in FIRST's system, use Import FTC Event instead — it also creates the calendar event and team list.</p>
               </div>
               <button onClick={onCreateEventSubmit} disabled={!eventForm.name.trim()}
                 className="w-full py-4 md:py-6 bg-teamColor text-white font-black rounded-xl md:rounded-[32px] hover:opacity-90 shadow-2xl shadow-teamColor/20 transition-all uppercase tracking-widest text-xs md:text-sm flex items-center justify-center gap-2 md:gap-3 disabled:opacity-50">

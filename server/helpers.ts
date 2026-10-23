@@ -30,13 +30,10 @@ export function roundToQuarterHour(minutes: number): number {
 
 type FirstCreds = { username: string; token: string };
 
-let _keyCache: {
-  tba: string;
-  toa: string;
-  nexus: string;
-  first: FirstCreds;
-  expiresAt: number;
-} | null = null;
+// FIRST's official FTC Events API is the only external data source. Its
+// credentials are a username + token pair, read from the Control Panel first
+// and the FTC_API_USERNAME / FTC_API_TOKEN env vars as a fallback.
+let _keyCache: { first: FirstCreds; expiresAt: number } | null = null;
 
 async function getApiKeys() {
   const now = Date.now();
@@ -48,9 +45,6 @@ async function getApiKeys() {
   try {
     const s = await storage.getTeamSettings();
     _keyCache = {
-      tba:   (s.tbaApiKey   as string | null) || process.env.TBA_API_KEY   || "",
-      toa:   (s.toaApiKey   as string | null) || process.env.TOA_API_KEY   || "",
-      nexus: (s.nexusApiKey as string | null) || process.env.NEXUS_API_KEY || "",
       first: {
         username: (s.ftcApiUsername as string | null) || envFirst.username,
         token:    (s.ftcApiToken    as string | null) || envFirst.token,
@@ -58,13 +52,7 @@ async function getApiKeys() {
       expiresAt: now + 5 * 60 * 1000,
     };
   } catch {
-    _keyCache = {
-      tba:   process.env.TBA_API_KEY   || "",
-      toa:   process.env.TOA_API_KEY   || "",
-      nexus: process.env.NEXUS_API_KEY || "",
-      first: envFirst,
-      expiresAt: now + 30 * 1000,
-    };
+    _keyCache = { first: envFirst, expiresAt: now + 30 * 1000 };
   }
   return _keyCache;
 }
@@ -73,77 +61,10 @@ export function invalidateApiKeyCache() {
   _keyCache = null;
 }
 
-export async function getResolvedKeys() {
-  return getApiKeys();
-}
-
-const TBA_BASE = "https://www.thebluealliance.com/api/v3";
-export const TBA_KEY = process.env.TBA_API_KEY || "";
-
-export async function tbaFetch(path: string) {
-  const { tba } = await getApiKeys();
-  const resp = await fetch(`${TBA_BASE}${path}`, {
-    headers: { "X-TBA-Auth-Key": tba },
-  });
-  if (!resp.ok) throw new Error(`TBA API error: ${resp.status}`);
-  return resp.json();
-}
-
-export async function hasTbaKey(): Promise<boolean> {
-  const { tba } = await getApiKeys();
-  return !!tba;
-}
-
-const TOA_BASE = "https://api.theorangealliance.org";
-export const TOA_KEY = process.env.TOA_API_KEY || "";
-
-export async function toaFetch(path: string) {
-  const { toa } = await getApiKeys();
-  if (!toa) throw new Error("No TOA API key configured. Add one in the Control Panel.");
-  const resp = await fetch(`${TOA_BASE}${path}`, {
-    headers: {
-      "X-TOA-Key": toa,
-      "X-Application-Origin": "ManeFrameHub",
-    },
-  });
-  if (!resp.ok) {
-    const err: any = new Error(`TOA API error: ${resp.status} ${resp.statusText}`);
-    err.status = resp.status;
-    throw err;
-  }
-  return resp.json();
-}
-
-export async function hasToaKey(): Promise<boolean> {
-  const { toa } = await getApiKeys();
-  return !!toa;
-}
-
-const NEXUS_BASE = "https://frc.nexus/api/v1";
-
-export async function nexusFetch(path: string) {
-  const { nexus } = await getApiKeys();
-  if (!nexus) throw new Error("No Nexus API key configured. Add one in the Control Panel.");
-  const resp = await fetch(`${NEXUS_BASE}${path}`, {
-    headers: { "Nexus-Api-Key": nexus },
-  });
-  if (!resp.ok) {
-    const err: any = new Error(`Nexus API error: ${resp.status} ${resp.statusText}`);
-    err.status = resp.status;
-    throw err;
-  }
-  return resp.json();
-}
-
-export async function hasNexusKey(): Promise<boolean> {
-  const { nexus } = await getApiKeys();
-  return !!nexus;
-}
-
-// FIRST's official FTC Events API. Unlike TBA/TOA/Nexus it authenticates with
-// HTTP Basic over a username + token pair, and `season` is the 4-digit start
-// year of the season (2025 = the 2025-26 season), not TOA's "2526" form.
-const FIRST_BASE = "https://ftc-api.firstinspires.org/v2.0";
+// HTTP Basic over the username + token pair. `season` in paths is the 4-digit
+// start year (2026 = the 2026–27 season) — see shared/ftcSeason.ts.
+// FTC_API_BASE exists only to point at a mock server when testing.
+const FIRST_BASE = process.env.FTC_API_BASE || "https://ftc-api.firstinspires.org/v2.0";
 
 export async function firstFetch(path: string) {
   const { first } = await getApiKeys();
@@ -165,9 +86,4 @@ export async function firstFetch(path: string) {
 export async function hasFirstKey(): Promise<boolean> {
   const { first } = await getApiKeys();
   return !!(first.username && first.token);
-}
-
-/** Start year of the current FTC season — it rolls over in September. */
-export function currentFirstSeason(now = new Date()): number {
-  return now.getMonth() >= 8 ? now.getFullYear() : now.getFullYear() - 1;
 }

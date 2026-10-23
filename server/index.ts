@@ -205,6 +205,7 @@ initializeDatabase().then(() => {
       await storage.ensureArchiveColumns();
       await storage.ensureAttendanceColumns();
       await storage.ensureProjectLinksColumn();
+      await storage.ensureScoutEventFirstLink();
       await storage.ensureTaskSegments();
       await storage.ensureCertificationLevelsAndBadges();
       await getTeamTimezone(); // warm the cache and surface any DB issue at boot

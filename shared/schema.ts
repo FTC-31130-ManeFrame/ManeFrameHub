@@ -249,6 +249,13 @@ export const scoutEvents = pgTable("scout_events", {
   startDate: text("start_date"),
   endDate: text("end_date"),
   seasonId: integer("season_id").references(() => seasons.id),
+  // FIRST FTC Events API event code (e.g. "USCAFFFAQ"). The season it belongs
+  // to is derived from startDate, so the code alone is enough to fetch data.
+  eventCode: text("event_code"),
+  // The calendar event for the same competition. Attendance runs through the
+  // calendar event; scouting runs through this row.
+  calendarEventId: integer("calendar_event_id").references(() => calendarEvents.id, { onDelete: "set null" }),
+  // Legacy — TBA/TOA/Nexus are no longer used. Kept so old rows stay readable.
   toaEventKey: text("toa_event_key"),
   tbaEventKey: text("tba_event_key"),
   nexusEventKey: text("nexus_event_key"),

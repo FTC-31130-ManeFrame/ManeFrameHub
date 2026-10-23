@@ -1,9 +1,11 @@
 import { Router } from "express";
 import { storage } from "../storage";
+import { hasFirstKey } from "../helpers";
 import {
-  tbaFetch, TBA_KEY, nexusFetch, toaFetch, TOA_KEY, hasNexusKey,
-  firstFetch, hasFirstKey, currentFirstSeason,
-} from "../helpers";
+  importFirstEvent, listSeasonEvents, listTeamEvents,
+  fetchEventMatches, fetchEventRankings, fetchEventTeams, type FirstEvent,
+} from "../services/firstApi";
+import { ftcSeasonFor } from "../../shared/ftcSeason";
 import { requireRoles } from "../middleware/auth";
 import { DEFAULT_TEMPLATES, type ScoutKind, type TemplateField } from "../../shared/scoutingTemplates";
 import { liveCompetitionEvents, localDatePT } from "../../utils/dates";
@@ -42,7 +44,7 @@ router.get("/scout-events", async (req, res) => {
 
 router.post("/scout-events", requireScoutManager, async (req, res) => {
   try {
-    const event = await storage.createScoutEvent(req.body);
+    const event = await storage.createScoutEvent({ ...req.body, createdBy: req.userId! });
     res.status(201).json(event);
   } catch (error) {
     console.error("Error creating scout event:", error);
@@ -308,151 +310,11 @@ router.get("/scout/events/:id/export.csv", async (req, res) => {
   catch (error) { console.error("Error exporting scout CSV:", error); res.status(500).json({ error: "Failed to export scout CSV" }); }
 });
 
-router.get("/tba/event/:eventKey/matches", async (req, res) => {
-  try {
-    const data = await tbaFetch(`/event/${req.params.eventKey}/matches`);
-    res.json(data);
-  } catch (error) {
-    console.error("TBA event matches error:", error);
-    res.status(500).json({ error: "Failed to fetch TBA event matches" });
-  }
-});
-
-router.get("/tba/event/:eventKey/teams", async (req, res) => {
-  try {
-    const data = await tbaFetch(`/event/${req.params.eventKey}/teams`);
-    res.json(data);
-  } catch (error) {
-    console.error("TBA event teams error:", error);
-    res.status(500).json({ error: "Failed to fetch TBA event teams" });
-  }
-});
-
-router.get("/tba/event/:eventKey/rankings", async (req, res) => {
-  try {
-    const data = await tbaFetch(`/event/${req.params.eventKey}/rankings`);
-    res.json(data);
-  } catch (error) {
-    console.error("TBA rankings error:", error);
-    res.status(500).json({ error: "Failed to fetch TBA rankings" });
-  }
-});
-
-router.get("/tba/team/:teamKey/event/:eventKey/matches", async (req, res) => {
-  try {
-    const data = await tbaFetch(`/team/${req.params.teamKey}/event/${req.params.eventKey}/matches`);
-    res.json(data);
-  } catch (error) {
-    console.error("TBA team matches error:", error);
-    res.status(500).json({ error: "Failed to fetch TBA team matches" });
-  }
-});
-
-router.get("/tba/team/:teamKey/event/:eventKey/status", async (req, res) => {
-  try {
-    const data = await tbaFetch(`/team/${req.params.teamKey}/event/${req.params.eventKey}/status`);
-    res.json(data);
-  } catch (error) {
-    console.error("TBA team status error:", error);
-    res.status(500).json({ error: "Failed to fetch TBA team status" });
-  }
-});
-
-router.get("/tba/team/:teamKey/events/:year", async (req, res) => {
-  try {
-    const data = await tbaFetch(`/team/${req.params.teamKey}/events/${req.params.year}`);
-    res.json(data);
-  } catch (error) {
-    console.error("TBA team year events error:", error);
-    res.status(500).json({ error: "Failed to fetch TBA team year events" });
-  }
-});
-
-router.get("/tba/team/:teamKey/events/:year/statuses", async (req, res) => {
-  try {
-    const data = await tbaFetch(`/team/${req.params.teamKey}/events/${req.params.year}/statuses`);
-    res.json(data);
-  } catch (error) {
-    console.error("TBA team year statuses error:", error);
-    res.status(500).json({ error: "Failed to fetch TBA team year statuses" });
-  }
-});
-
-router.get("/tba/match/:matchKey", async (req, res) => {
-  try {
-    const data = await tbaFetch(`/match/${req.params.matchKey}`);
-    res.json(data);
-  } catch (error) {
-    console.error("TBA match error:", error);
-    res.status(500).json({ error: "Failed to fetch TBA match" });
-  }
-});
-
-router.get("/toa/event/:eventKey/matches", async (req, res) => {
-  try {
-    if (!TOA_KEY) return res.status(503).json({ error: "TOA_API_KEY is not configured" });
-    const data = await toaFetch(`/event/${req.params.eventKey}/matches`);
-    res.json(Array.isArray(data) ? data : []);
-  } catch (error) {
-    console.error("TOA event matches error:", error);
-    res.status(500).json({ error: "Failed to fetch TOA event matches" });
-  }
-});
-
-router.get("/toa/event/:eventKey/rankings", async (req, res) => {
-  try {
-    if (!TOA_KEY) return res.status(503).json({ error: "TOA_API_KEY is not configured" });
-    const data = await toaFetch(`/event/${req.params.eventKey}/rankings`);
-    res.json(Array.isArray(data) ? data : []);
-  } catch (error) {
-    console.error("TOA rankings error:", error);
-    res.status(500).json({ error: "Failed to fetch TOA rankings" });
-  }
-});
-
-router.get("/toa/event/:eventKey/teams", async (req, res) => {
-  try {
-    if (!TOA_KEY) return res.status(503).json({ error: "TOA_API_KEY is not configured" });
-    const data = await toaFetch(`/event/${req.params.eventKey}/teams`);
-    res.json(Array.isArray(data) ? data : []);
-  } catch (error) {
-    console.error("TOA event teams error:", error);
-    res.status(500).json({ error: "Failed to fetch TOA event teams" });
-  }
-});
-
-router.get("/toa/team/:teamKey/events/:season", async (req, res) => {
-  try {
-    if (!TOA_KEY) return res.status(503).json({ error: "TOA_API_KEY is not configured" });
-    const data = await toaFetch(`/team/${req.params.teamKey}/events/${req.params.season}`);
-    res.json(Array.isArray(data) ? data : []);
-  } catch (error) {
-    console.error("TOA team events error:", error);
-    res.status(500).json({ error: "Failed to fetch TOA team events" });
-  }
-});
-
-router.get("/toa/team/:teamKey/media", async (req, res) => {
-  try {
-    if (!TOA_KEY) return res.status(503).json({ error: "TOA_API_KEY is not configured" });
-    const data = await toaFetch(`/team/${req.params.teamKey}/media`);
-    const photos = Array.isArray(data)
-      ? data.filter((m: any) => m.url).map((m: any) => ({ url: m.url, description: m.description || m.file_name || '' }))
-      : [];
-    res.json(photos);
-  } catch (error) {
-    console.error("TOA team media error:", error);
-    res.status(500).json({ error: "Failed to fetch TOA team media" });
-  }
-});
-
 // ---------------------------------------------------------------------------
-// FIRST's official FTC Events API.
-//
-// Unlike the TOA routes above — which hand raw JSON to the client and let
-// Scout.tsx reshape it — these normalize server-side, so the mapping lives in
-// one place. The output shapes deliberately match what the client already
-// builds from TOA, so the scouting screens consume them unchanged.
+// FIRST's official FTC Events API — the only external data source. Fetching
+// and normalization live in server/services/firstApi.ts; these routes only
+// translate HTTP. `?season=` overrides the season, which otherwise defaults
+// to the current one (it rolls over in September).
 // ---------------------------------------------------------------------------
 
 const FIRST_UNCONFIGURED =
@@ -468,62 +330,64 @@ function sendFirstError(res: any, error: any, what: string) {
       error: "FIRST rejected these credentials. Check the username and token in Control Panel → API Integrations.",
     });
   }
+  if (error?.status === 404) return res.status(404).json({ error: error.message || `${what} not found` });
   console.error(`FIRST ${what} error:`, error?.message);
   return res.status(500).json({ error: `Failed to fetch FIRST ${what}` });
 }
 
-/** Season defaults to the current one; `?season=2025` overrides. */
 function seasonFrom(value: unknown): number {
   const n = parseInt(String(value ?? ""), 10);
-  return Number.isFinite(n) && n > 2000 ? n : currentFirstSeason();
+  return Number.isFinite(n) && n > 2000 ? n : ftcSeasonFor();
 }
 
-/** FIRST reports "QUALIFICATION"/"SEMIFINAL"/"FINAL"; the client wants TBA's codes. */
-function compLevelOf(level: unknown): "qm" | "sf" | "f" {
-  const s = String(level ?? "").toUpperCase();
-  if (s.startsWith("QUAL")) return "qm";
-  if (s.startsWith("FINAL")) return "f";
-  return s ? "sf" : "qm";
+async function requireFirst(res: any): Promise<boolean> {
+  if (await hasFirstKey()) return true;
+  res.status(503).json({ error: FIRST_UNCONFIGURED });
+  return false;
 }
 
-function normalizeFirstMatches(eventCode: string, raw: any) {
-  const matches = Array.isArray(raw?.matches) ? raw.matches : [];
-  return matches.map((m: any) => {
-    const teams = Array.isArray(m.teams) ? m.teams : [];
-    const keysFor = (side: string) =>
-      teams
-        .filter((t: any) => String(t.station || "").toLowerCase().startsWith(side))
-        .map((t: any) => `ftc${t.teamNumber}`);
-    const red = m.scoreRedFinal ?? -1;
-    const blue = m.scoreBlueFinal ?? -1;
-    // postResultTime is the API's own "this match is final" signal; the score
-    // check is a fallback. A genuine 0-0 tie reads as unplayed — acceptable,
-    // since the alternative is showing every unplayed match as a 0-0 tie.
-    const played = m.postResultTime != null || (red >= 0 && blue >= 0 && red + blue > 0);
-    const compLevel = compLevelOf(m.tournamentLevel);
-    const number = m.matchNumber ?? 1;
-    return {
-      key: `${eventCode}_${compLevel}${number}`,
-      comp_level: compLevel,
-      match_number: number,
-      set_number: m.series || number,
-      alliances: {
-        red:  { team_keys: keysFor("red"),  score: red },
-        blue: { team_keys: keysFor("blue"), score: blue },
-      },
-      winning_alliance: played && red !== blue ? (red > blue ? "red" : "blue") : "",
-      post_result_time: played ? 1 : null,
-    };
-  });
-}
+// Event search for the import picker. `mine=1` limits to events our team is
+// registered for; `q` matches name, code or location.
+router.get("/first/events", async (req, res) => {
+  try {
+    if (!(await requireFirst(res))) return;
+    const season = seasonFrom(req.query.season);
+    let events: FirstEvent[];
+    if (req.query.mine === "1") {
+      const settings = await storage.getTeamSettings();
+      events = await listTeamEvents(season, settings.teamNumber as number);
+    } else {
+      events = await listSeasonEvents(season);
+    }
+    const q = String(req.query.q || "").trim().toLowerCase();
+    if (q) {
+      events = events.filter(e =>
+        e.name.toLowerCase().includes(q) || e.code.toLowerCase().includes(q) || e.location.toLowerCase().includes(q));
+    }
+    events = [...events].sort((a, b) => String(a.startDate).localeCompare(String(b.startDate)));
+    res.json({ season, events: events.slice(0, 200) });
+  } catch (error: any) {
+    return sendFirstError(res, error, "events");
+  }
+});
+
+// One import creates the calendar event, the linked scout event and the team
+// list. Safe to repeat — see importFirstEvent.
+router.post("/first/events/:code/import", requireScoutManager, async (req, res) => {
+  try {
+    if (!(await requireFirst(res))) return;
+    const season = req.body?.season ? seasonFrom(req.body.season) : undefined;
+    const result = await importFirstEvent(req.params.code, req.userId!, season);
+    res.json(result);
+  } catch (error: any) {
+    return sendFirstError(res, error, "event import");
+  }
+});
 
 router.get("/first/event/:eventCode/matches", async (req, res) => {
   try {
-    if (!(await hasFirstKey())) return res.status(503).json({ error: FIRST_UNCONFIGURED });
-    const season = seasonFrom(req.query.season);
-    const code = req.params.eventCode;
-    const data = await firstFetch(`/${season}/matches/${encodeURIComponent(code)}`);
-    res.json(normalizeFirstMatches(code, data));
+    if (!(await requireFirst(res))) return;
+    res.json(await fetchEventMatches(seasonFrom(req.query.season), req.params.eventCode));
   } catch (error: any) {
     if (error?.status === 404) return res.json([]); // schedule not posted yet
     return sendFirstError(res, error, "event matches");
@@ -532,22 +396,8 @@ router.get("/first/event/:eventCode/matches", async (req, res) => {
 
 router.get("/first/event/:eventCode/rankings", async (req, res) => {
   try {
-    if (!(await hasFirstKey())) return res.status(503).json({ error: FIRST_UNCONFIGURED });
-    const season = seasonFrom(req.query.season);
-    const data: any = await firstFetch(
-      `/${season}/rankings/${encodeURIComponent(req.params.eventCode)}`,
-    );
-    const rows = Array.isArray(data?.rankings) ? data.rankings : [];
-    res.json(
-      rows
-        .filter((r: any) => r?.teamNumber)
-        .map((r: any) => ({
-          teamNumber: r.teamNumber,
-          rank: r.rank ?? 0,
-          rp: r.sortOrder1 ?? 0,
-          record: `${r.wins ?? 0}-${r.losses ?? 0}-${r.ties ?? 0}`,
-        })),
-    );
+    if (!(await requireFirst(res))) return;
+    res.json(await fetchEventRankings(seasonFrom(req.query.season), req.params.eventCode));
   } catch (error: any) {
     if (error?.status === 404) return res.json([]); // rankings appear after quals start
     return sendFirstError(res, error, "event rankings");
@@ -556,85 +406,22 @@ router.get("/first/event/:eventCode/rankings", async (req, res) => {
 
 router.get("/first/event/:eventCode/teams", async (req, res) => {
   try {
-    if (!(await hasFirstKey())) return res.status(503).json({ error: FIRST_UNCONFIGURED });
-    const season = seasonFrom(req.query.season);
-    const code = encodeURIComponent(req.params.eventCode);
-    // This endpoint paginates, so a single call silently truncates a large event.
-    const collected: any[] = [];
-    let page = 1;
-    let pageTotal = 1;
-    do {
-      const data: any = await firstFetch(`/${season}/teams?eventCode=${code}&page=${page}`);
-      const teams = Array.isArray(data?.teams) ? data.teams : [];
-      collected.push(...teams);
-      pageTotal = Number(data?.pageTotal) || 1;
-      page++;
-    } while (page <= pageTotal && page <= 25); // hard stop so a bad pageTotal can't spin
-    res.json(
-      collected
-        .filter((t: any) => t?.teamNumber)
-        .map((t: any) => ({
-          team_number: t.teamNumber,
-          team_name_short: t.nameShort || "",
-          team_name: t.nameFull || t.nameShort || "",
-          city: t.city || "",
-          state_prov: t.stateProv || "",
-          country: t.country || "",
-        })),
-    );
+    if (!(await requireFirst(res))) return;
+    res.json(await fetchEventTeams(seasonFrom(req.query.season), req.params.eventCode));
   } catch (error: any) {
     return sendFirstError(res, error, "event teams");
   }
 });
 
-router.get("/nexus/:eventKey", async (req, res) => {
+// A team's other events this season — the robot page's "season history".
+router.get("/first/team/:teamNumber/events", async (req, res) => {
   try {
-    if (!(await hasNexusKey())) {
-      return res.status(503).json({ error: "Nexus API key not configured. Add one in the Control Panel." });
-    }
-    const data = await nexusFetch(`/event/${req.params.eventKey}`);
-    res.json(data);
+    if (!(await requireFirst(res))) return;
+    const teamNumber = parseInt(req.params.teamNumber, 10);
+    if (!teamNumber) return res.status(400).json({ error: "Invalid team number" });
+    res.json(await listTeamEvents(seasonFrom(req.query.season), teamNumber));
   } catch (error: any) {
-    const status = error?.status ?? error?.statusCode ?? 500;
-    if (status === 404) {
-      return res.status(404).json({ error: "Event not found in Nexus — it may have ended." });
-    }
-    console.error("Nexus event error:", error.message);
-    res.status(500).json({ error: error.message || "Failed to fetch Nexus event data" });
-  }
-});
-
-router.get("/nexus/:eventKey/pits", async (req, res) => {
-  try {
-    if (!(await hasNexusKey())) {
-      return res.status(503).json({ error: "Nexus API key not configured. Add one in the Control Panel." });
-    }
-    const data = await nexusFetch(`/event/${req.params.eventKey}/pits`);
-    res.json(data);
-  } catch (error: any) {
-    const status = error?.status ?? error?.statusCode ?? 500;
-    if (status === 404) {
-      return res.status(404).json({ error: "Event not found in Nexus — it may have ended." });
-    }
-    console.error("Nexus pits error:", error.message);
-    res.status(500).json({ error: error.message || "Failed to fetch Nexus pit data" });
-  }
-});
-
-router.get("/nexus/:eventKey/map", async (req, res) => {
-  try {
-    if (!(await hasNexusKey())) {
-      return res.status(503).json({ error: "Nexus API key not configured. Add one in the Control Panel." });
-    }
-    const data = await nexusFetch(`/event/${req.params.eventKey}/map`);
-    res.json(data);
-  } catch (error: any) {
-    const status = error?.status ?? error?.statusCode ?? 500;
-    if (status === 404) {
-      return res.status(404).json({ error: "Event not found in Nexus — it may have ended." });
-    }
-    console.error(`Nexus map error [${req.params.eventKey}]:`, error.message);
-    res.status(status).json({ error: error.message || "Failed to fetch Nexus pit map" });
+    return sendFirstError(res, error, "team events");
   }
 });
 

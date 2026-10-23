@@ -62,9 +62,9 @@ const STEPS: TutorialStep[] = [
   {
     icon: <Crosshair size={28} className="text-teamColor" />,
     label: 'Scout',
-    title: "FTC scouting + TOA / Nexus live feeds",
+    title: "FTC scouting + live FIRST data",
     body:
-      "The Scout module tracks pit specs, match scouting, and pulls live rankings from The Orange Alliance and Nexus. Use Pit Display for a 4K-optimized live view at competitions — it shows upcoming matches, pit maps, and team rankings side by side.",
+      "Import an event from FIRST and the Scout module creates the scouting event, its calendar event and the team list in one step. Scouts record pit and match data using your season's templates, and the schedule, results and rankings come live from FIRST's FTC Events API. Pit Display shows upcoming matches and rankings side by side.",
     route: '/scout',
     routeLabel: 'Open Scout',
   },
@@ -73,7 +73,7 @@ const STEPS: TutorialStep[] = [
     label: 'Resources & Calendar',
     title: "Shared links and team schedule",
     body:
-      "Resources is a curated, searchable hub of FTC links (vendors, software, training docs) — any member can add links, coaches can pin the most important ones. Calendar keeps shop sessions, competitions, meetings, and outreach in one place, with TOA import for competition dates.",
+      "Resources is a curated, searchable hub of FTC links (vendors, software, training docs) — any member can add links, coaches can pin the most important ones. Calendar keeps shop sessions, competitions, meetings, and outreach in one place, with one-click FTC event import from FIRST.",
   },
 ];
 

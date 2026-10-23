@@ -4,6 +4,24 @@ import type { DepartmentUsageMap } from '../shared/departments';
 const API_BASE = '/api';
 export const AUTH_REQUIRED_EVENT = 'piobyte:auth-required';
 
+export interface FirstEventSummary {
+  code: string;
+  name: string;
+  startDate: string | null;
+  endDate: string | null;
+  location: string;
+  type: string;
+}
+
+export interface FirstImportResult {
+  scoutEvent: any;
+  calendarEvent: any;
+  createdScoutEvent: boolean;
+  createdCalendarEvent: boolean;
+  teamsAdded: number;
+  teamsTotal: number;
+}
+
 type ApiRequestOptions = RequestInit & {
   suppressAuthEvent?: boolean;
 };
@@ -229,37 +247,32 @@ export const api = {
     delete: (eventId: number, userId: number, matchNumber: number, requesterId: number) =>
       apiRequest<void>(`/events/${eventId}/match-exceptions`, { method: 'DELETE', body: JSON.stringify({ userId, matchNumber, requesterId }) }),
   },
-  tba: {
-    getEventMatches: (eventKey: string) => apiRequest<any[]>(`/tba/event/${eventKey}/matches`),
-    getEventTeams: (eventKey: string) => apiRequest<any[]>(`/tba/event/${eventKey}/teams`),
-    getEventRankings: (eventKey: string) => apiRequest<any>(`/tba/event/${eventKey}/rankings`),
-    getTeamMatches: (teamKey: string, eventKey: string) => apiRequest<any[]>(`/tba/team/${teamKey}/event/${eventKey}/matches`),
-    getTeamStatus: (teamKey: string, eventKey: string) => apiRequest<any>(`/tba/team/${teamKey}/event/${eventKey}/status`),
-    getTeamYearEvents: (teamKey: string, year: number) => apiRequest<any[]>(`/tba/team/${teamKey}/events/${year}`),
-    getTeamYearStatuses: (teamKey: string, year: number) => apiRequest<any>(`/tba/team/${teamKey}/events/${year}/statuses`),
-    getMatchVideos: (matchKey: string) => apiRequest<any>(`/tba/match/${matchKey}`),
-  },
-  toa: {
-    getEventMatches: (eventKey: string) => apiRequest<any[]>(`/toa/event/${eventKey}/matches`),
-    getEventTeams: (eventKey: string) => apiRequest<any[]>(`/toa/event/${eventKey}/teams`),
-    getEventRankings: (eventKey: string) => apiRequest<any[]>(`/toa/event/${eventKey}/rankings`),
-    getTeamEvents: (teamKey: string, season: string) => apiRequest<any[]>(`/toa/team/${teamKey}/events/${season}`),
-    getTeamMedia: (teamKey: string) => apiRequest<{ url: string; description: string }[]>(`/toa/team/${teamKey}/media`),
-  },
-  // FIRST's official FTC Events API. These come back already normalized by the
-  // server, so callers use them as-is — unlike the TOA methods above.
+  // FIRST's official FTC Events API — the only external data source. Responses
+  // are normalized server-side, so callers use them as-is. `season` is the
+  // 4-digit start year (see shared/ftcSeason.ts); omitted means current.
   first: {
-    getEventMatches: (eventCode: string) => apiRequest<any[]>(`/first/event/${eventCode}/matches`),
-    getEventRankings: (eventCode: string) =>
+    searchEvents: (opts: { season?: number; q?: string; mine?: boolean } = {}) => {
+      const p = new URLSearchParams();
+      if (opts.season) p.set('season', String(opts.season));
+      if (opts.q) p.set('q', opts.q);
+      if (opts.mine) p.set('mine', '1');
+      return apiRequest<{ season: number; events: FirstEventSummary[] }>(`/first/events?${p}`);
+    },
+    importEvent: (code: string, season?: number) =>
+      apiRequest<FirstImportResult>(`/first/events/${encodeURIComponent(code)}/import`, {
+        method: 'POST',
+        body: JSON.stringify(season ? { season } : {}),
+      }),
+    getEventMatches: (eventCode: string, season?: number) =>
+      apiRequest<any[]>(`/first/event/${encodeURIComponent(eventCode)}/matches${season ? `?season=${season}` : ''}`),
+    getEventRankings: (eventCode: string, season?: number) =>
       apiRequest<{ teamNumber: number; rank: number; rp: number; record: string }[]>(
-        `/first/event/${eventCode}/rankings`,
+        `/first/event/${encodeURIComponent(eventCode)}/rankings${season ? `?season=${season}` : ''}`,
       ),
-    getEventTeams: (eventCode: string) => apiRequest<any[]>(`/first/event/${eventCode}/teams`),
-  },
-  nexus: {
-    getEvent: (eventKey: string) => apiRequest<any>(`/nexus/${eventKey}`),
-    getPits: (eventKey: string) => apiRequest<any>(`/nexus/${eventKey}/pits`),
-    getPitMap: (eventKey: string) => apiRequest<any>(`/nexus/${eventKey}/map`),
+    getEventTeams: (eventCode: string, season?: number) =>
+      apiRequest<any[]>(`/first/event/${encodeURIComponent(eventCode)}/teams${season ? `?season=${season}` : ''}`),
+    getTeamEvents: (teamNumber: number, season?: number) =>
+      apiRequest<FirstEventSummary[]>(`/first/team/${teamNumber}/events${season ? `?season=${season}` : ''}`),
   },
   eventInfo: {
     get: (eventId: number) => apiRequest<any>(`/scout-events/${eventId}/info`),
@@ -376,17 +389,6 @@ export const api = {
       apiRequest<void>(`/calendar/${id}?requesterId=${requesterId}`, { method: 'DELETE' }),
     patchDeletedDates: (id: number, requesterId: number, deletedDates: string[]) =>
       apiRequest<any>(`/calendar/${id}/deleted-dates`, { method: 'PATCH', body: JSON.stringify({ requesterId, deletedDates }) }),
-    tbaPreview: (requesterId: number) =>
-      apiRequest<any[]>(`/calendar/tba-preview?requesterId=${requesterId}`),
-    tbaImport: (requesterId: number, events: any[]) =>
-      apiRequest<{ created: number; skipped: number }>('/calendar/tba-import', { method: 'POST', body: JSON.stringify({ requesterId, events }) }),
-    toaPreview: (requesterId: number, season?: string) =>
-      apiRequest<any[]>(`/calendar/toa-preview?requesterId=${requesterId}${season ? `&season=${season}` : ''}`),
-    firstPreview: (requesterId: number, season?: number) =>
-      apiRequest<any[]>(`/calendar/first-preview?requesterId=${requesterId}${season ? `&season=${season}` : ''}`),
-    // Source-agnostic: takes {name,startDate,endDate,location} from either preview.
-    toaImport: (requesterId: number, events: any[]) =>
-      apiRequest<{ created: number; skipped: number }>('/calendar/toa-import', { method: 'POST', body: JSON.stringify({ requesterId, events }) }),
     // Personal webcal/ICS subscription feed — see server/routes/calendarFeed.ts.
     getFeedToken: () => apiRequest<{ token: string; url: string; webcalUrl: string }>('/calendar/feed-token'),
     regenerateFeedToken: () => apiRequest<{ token: string; url: string; webcalUrl: string }>('/calendar/feed-token/regenerate', { method: 'POST' }),
@@ -396,10 +398,8 @@ export const api = {
     update: (data: any) => apiRequest<any>('/settings', { method: 'PUT', body: JSON.stringify(data) }),
     reset: (requesterId: number) => apiRequest<any>('/settings/reset', { method: 'POST', body: JSON.stringify({ requesterId }) }),
     departmentUsage: () => apiRequest<DepartmentUsageMap>('/settings/department-usage'),
-    fetchTbaLogo: (teamNumber: number) => apiRequest<{ logoUrl: string | null }>(`/settings/tba-logo?team=${teamNumber}`),
-    fetchToaLogo: (teamNumber: number) => apiRequest<{ logoUrl: string | null }>(`/settings/toa-logo?team=${teamNumber}`),
-    getApiStatus: () => apiRequest<{ tba: boolean; toa: boolean; nexus: boolean; first: boolean }>('/settings/api-status'),
-    saveApiKeys: (data: { requesterId: number; tbaApiKey?: string | null; toaApiKey?: string | null; nexusApiKey?: string | null; ftcApiUsername?: string | null; ftcApiToken?: string | null }) =>
+    getApiStatus: () => apiRequest<{ first: boolean }>('/settings/api-status'),
+    saveApiKeys: (data: { requesterId: number; ftcApiUsername?: string | null; ftcApiToken?: string | null }) =>
       apiRequest<void>('/settings/api-keys', { method: 'PUT', body: JSON.stringify(data) }),
   },
   resources: {

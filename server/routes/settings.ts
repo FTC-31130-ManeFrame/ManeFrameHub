@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { PNG } from "pngjs";
 import { storage, DepartmentChangeError } from "../storage";
-import { getUserRoles, hasAnyRole, COACH_CAPTAIN, hasTbaKey, hasToaKey, hasNexusKey, hasFirstKey, invalidateApiKeyCache, getResolvedKeys } from "../helpers";
+import { getUserRoles, hasAnyRole, COACH_CAPTAIN, hasFirstKey, invalidateApiKeyCache } from "../helpers";
 import { invalidateTeamTimezoneCache } from "../services/teamTime";
 import { requireRoles } from "../middleware/auth";
 import { EMPTY_DEPARTMENT_CHANGES, derivedRemovals } from "../../shared/departments";
@@ -364,85 +364,21 @@ router.get("/settings/pwa-icon.svg", async (req, res) => {
   }
 });
 
-router.get("/settings/tba-logo", async (req, res) => {
-  try {
-    const teamNum = req.query.team as string;
-    if (!teamNum) return res.status(400).json({ error: "team query param required" });
-
-    const { tba: apiKey } = await getResolvedKeys();
-    if (!apiKey) return res.status(500).json({ error: "TBA API key not configured" });
-
-    const currentYear = new Date().getFullYear();
-    const years = [currentYear, currentYear - 1, currentYear + 1];
-
-    for (const year of years) {
-      const url = `https://www.thebluealliance.com/api/v3/team/frc${teamNum}/media/${year}`;
-      const response = await fetch(url, {
-        headers: { "X-TBA-Auth-Key": apiKey },
-      });
-      if (!response.ok) continue;
-      const media: any[] = await response.json();
-      const match = media.find((m: any) =>
-        ['avatar', 'logo'].includes(m.type) && m.details?.base64Image
-      );
-      if (match) {
-        return res.json({ logoUrl: `data:image/png;base64,${match.details.base64Image}` });
-      }
-    }
-
-    res.json({ logoUrl: null });
-  } catch (error) {
-    console.error("Error fetching TBA logo:", error);
-    res.status(500).json({ error: "Failed to fetch TBA logo" });
-  }
-});
-
-router.get("/settings/toa-logo", async (req, res) => {
-  try {
-    const teamNum = req.query.team as string;
-    if (!teamNum) return res.status(400).json({ error: "team query param required" });
-    const { toa: apiKey } = await getResolvedKeys();
-    if (!apiKey) return res.status(503).json({ error: "TOA API key not configured" });
-
-    const teamKey = `ftc${teamNum}`;
-    const response = await fetch(`https://theorangealliance.org/api/team/${teamKey}/media`, {
-      headers: {
-        "X-TOA-Key": apiKey,
-        "X-Application-Origin": "ManeFrameHub",
-        "Content-Type": "application/json",
-      },
-    });
-    if (!response.ok) return res.json({ logoUrl: null });
-    const media: any[] = await response.json();
-    const photo = Array.isArray(media) ? media.find((m: any) => m.url) : null;
-    res.json({ logoUrl: photo ? photo.url : null });
-  } catch (error) {
-    console.error("Error fetching TOA logo:", error);
-    res.status(500).json({ error: "Failed to fetch TOA logo" });
-  }
-});
-
 router.get("/settings/api-status", async (_req, res) => {
   res.json({
-    tba: await hasTbaKey(),
-    toa: await hasToaKey(),
-    nexus: await hasNexusKey(),
     first: await hasFirstKey(),
   });
 });
 
 router.put("/settings/api-keys", async (req, res) => {
   try {
-    const { requesterId, tbaApiKey, toaApiKey, nexusApiKey, ftcApiUsername, ftcApiToken } = req.body;
+    const { requesterId, ftcApiUsername, ftcApiToken } = req.body;
     if (!requesterId) return res.status(400).json({ error: "requesterId is required" });
     const actorRoles = await getUserRoles(parseInt(requesterId));
     if (!hasAnyRole(actorRoles, COACH_CAPTAIN)) {
       return res.status(403).json({ error: "Only Coaches or Captains can update API keys" });
     }
     const patch: Record<string, string | null> = {};
-    if (tbaApiKey   !== undefined) patch.tbaApiKey   = tbaApiKey   || null;
-    if (toaApiKey   !== undefined) patch.toaApiKey   = toaApiKey   || null;
-    if (nexusApiKey !== undefined) patch.nexusApiKey = nexusApiKey || null;
     if (ftcApiUsername !== undefined) patch.ftcApiUsername = ftcApiUsername || null;
     if (ftcApiToken    !== undefined) patch.ftcApiToken    = ftcApiToken    || null;
     await storage.upsertTeamSettings(patch);

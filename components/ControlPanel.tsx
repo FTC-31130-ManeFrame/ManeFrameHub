@@ -86,11 +86,10 @@ const ControlPanel: React.FC<ControlPanelProps> = ({ currentUserRoles, currentUs
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [saveSuccessDetail, setSaveSuccessDetail] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [logoLoading, setLogoLoading] = useState(false);
   const [logoMsg, setLogoMsg] = useState<string | null>(null);
   const [logoUploading, setLogoUploading] = useState(false);
   const logoFileRef = useRef<HTMLInputElement>(null);
-  const [apiStatus, setApiStatus] = useState<{ tba: boolean; toa: boolean; nexus: boolean; first: boolean } | null>(null);
+  const [apiStatus, setApiStatus] = useState<{ first: boolean } | null>(null);
 
   // Department rename/delete tracking — see the DeptDraft comment above.
   const [deptDrafts, setDeptDrafts] = useState<DeptDraft[]>(() => toDeptDrafts(settings.departments));
@@ -99,14 +98,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({ currentUserRoles, currentUs
     { kind: 'delete-department'; key: string; name: string } | { kind: 'reset' } | null
   >(null);
 
-  const [apiKeyForm, setApiKeyForm] = useState({ tba: '', toa: '', nexus: '' });
-  const [apiKeySaving, setApiKeySaving] = useState<Record<string, boolean>>({});
-  const [apiKeySaved, setApiKeySaved] = useState<Record<string, boolean>>({});
-  const [apiKeyError, setApiKeyError] = useState<Record<string, string>>({});
-  const [apiKeyVisible, setApiKeyVisible] = useState<Record<string, boolean>>({});
-
-  // FIRST's API takes a username + token pair, so it can't ride the
-  // single-value apiKeyForm the other providers share.
+  // FIRST's FTC Events API authenticates with a username + token pair.
   const [firstForm, setFirstForm] = useState({ username: '', token: '' });
   const [firstSaving, setFirstSaving] = useState(false);
   const [firstSaved, setFirstSaved] = useState(false);
@@ -238,7 +230,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({ currentUserRoles, currentUs
         departments,
         departmentChanges: deptChanges,
         roles: form.roles,
-        teamProgram: form.teamProgram,
+        teamProgram: 'FTC', // FRC support was removed; FIRST's FTC API is the only data source
         timezone: form.timezone,
       });
       const { departmentPropagation, ...clean } = updated;
@@ -288,42 +280,6 @@ const ControlPanel: React.FC<ControlPanelProps> = ({ currentUserRoles, currentUs
     }
   };
 
-  const fetchTbaLogo = async () => {
-    setLogoLoading(true);
-    setLogoMsg(null);
-    try {
-      const result = await api.settings.fetchTbaLogo(form.teamNumber);
-      if (result.logoUrl) {
-        setForm(f => ({ ...f, logoUrl: result.logoUrl }));
-        setLogoMsg('Logo found! Save to apply.');
-      } else {
-        setLogoMsg('No avatar found for this team on TBA.');
-      }
-    } catch {
-      setLogoMsg('Failed to fetch from TBA.');
-    } finally {
-      setLogoLoading(false);
-    }
-  };
-
-  const fetchToaLogo = async () => {
-    setLogoLoading(true);
-    setLogoMsg(null);
-    try {
-      const result = await api.settings.fetchToaLogo(form.teamNumber);
-      if (result.logoUrl) {
-        setForm(f => ({ ...f, logoUrl: result.logoUrl }));
-        setLogoMsg('Photo found from TOA! Save to apply.');
-      } else {
-        setLogoMsg('No photo found for this team on TOA.');
-      }
-    } catch {
-      setLogoMsg('Failed to fetch from TOA.');
-    } finally {
-      setLogoLoading(false);
-    }
-  };
-
   const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -353,29 +309,6 @@ const ControlPanel: React.FC<ControlPanelProps> = ({ currentUserRoles, currentUs
     reader.onerror = () => { setLogoMsg('Could not read file.'); setLogoUploading(false); };
     reader.readAsDataURL(file);
     e.target.value = '';
-  };
-
-  const handleSaveApiKey = async (field: 'tba' | 'toa' | 'nexus') => {
-    const value = apiKeyForm[field].trim();
-    setApiKeySaving(s => ({ ...s, [field]: true }));
-    setApiKeyError(s => ({ ...s, [field]: '' }));
-    try {
-      await api.settings.saveApiKeys({
-        requesterId: currentUserId ? parseInt(currentUserId) : 0,
-        ...(field === 'tba'   ? { tbaApiKey:   value || null } : {}),
-        ...(field === 'toa'   ? { toaApiKey:   value || null } : {}),
-        ...(field === 'nexus' ? { nexusApiKey: value || null } : {}),
-      });
-      setApiKeySaved(s => ({ ...s, [field]: true }));
-      setApiKeyForm(f => ({ ...f, [field]: '' }));
-      const fresh = await api.settings.getApiStatus();
-      setApiStatus(fresh);
-      setTimeout(() => setApiKeySaved(s => ({ ...s, [field]: false })), 2500);
-    } catch (err: any) {
-      setApiKeyError(s => ({ ...s, [field]: err?.message || 'Save failed' }));
-    } finally {
-      setApiKeySaving(s => ({ ...s, [field]: false }));
-    }
   };
 
   const handleSaveFirstCreds = async (clear = false) => {
@@ -489,7 +422,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({ currentUserRoles, currentUs
                 onChange={e => setForm(f => ({ ...f, teamNumber: parseInt(e.target.value) || 0 }))}
                 className="w-full px-3 py-2 text-sm font-bold border border-slate-200 dark:border-slate-600 rounded-xl bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-offset-1"
                 style={{ '--tw-ring-color': form.themeColor } as React.CSSProperties & Record<string, string>}
-                placeholder="10991"
+                placeholder="31130"
               />
             </div>
             <div>
@@ -505,47 +438,17 @@ const ControlPanel: React.FC<ControlPanelProps> = ({ currentUserRoles, currentUs
           </div>
 
           <div>
-            <label className="block text-[10px] font-black uppercase tracking-widest text-slate-500 dark:text-slate-400 mb-2">Team Program</label>
-            <div className="flex gap-2">
-              {(['FRC', 'FTC'] as const).map(prog => (
-                <button
-                  key={prog}
-                  type="button"
-                  onClick={() => setForm(f => ({ ...f, teamProgram: prog }))}
-                  className={`flex-1 py-2 rounded-xl text-xs font-black uppercase tracking-widest border-2 transition-all ${
-                    (form.teamProgram || 'FRC') === prog
-                      ? 'border-transparent text-white'
-                      : 'border-slate-200 dark:border-slate-600 text-slate-500 dark:text-slate-400 bg-white dark:bg-slate-700 hover:border-slate-300'
-                  }`}
-                  style={(form.teamProgram || 'FRC') === prog ? { backgroundColor: form.themeColor } : {}}
-                >
-                  {prog === 'FRC' ? 'FRC — FIRST Robotics Competition' : 'FTC — FIRST Tech Challenge'}
-                </button>
-              ))}
+            <label className="block text-[10px] font-black uppercase tracking-widest text-slate-500 dark:text-slate-400 mb-2">Event Data</label>
+            <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 w-fit">
+              <span className={`w-1.5 h-1.5 rounded-full ${apiStatus?.first ? 'bg-green-500' : 'bg-orange-400'}`} />
+              <span className="text-[9px] font-black text-slate-600 dark:text-slate-300 uppercase tracking-widest">FIRST FTC Events API</span>
+              <span className={`text-[9px] font-bold ${apiStatus?.first ? 'text-green-600' : 'text-orange-500'}`}>
+                {apiStatus == null ? '…' : apiStatus.first ? 'Active' : 'Add credentials below'}
+              </span>
             </div>
             <p className="text-[9px] text-slate-400 dark:text-slate-500 font-medium mt-1.5">
-              {(form.teamProgram || 'FRC') === 'FTC'
-                ? 'FTC mode enables The Orange Alliance (TOA) API integration for match data and calendar imports.'
-                : 'FRC mode uses The Blue Alliance (TBA) API for match data and calendar imports.'}
+              Event schedules, results, rankings and team lists come from FIRST's official FTC Events API.
             </p>
-            <div className="flex gap-2 mt-2 flex-wrap">
-              <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600">
-                <span className={`w-1.5 h-1.5 rounded-full ${apiStatus?.tba ? 'bg-green-500' : 'bg-red-400'}`} />
-                <span className="text-[9px] font-black text-slate-600 dark:text-slate-300 uppercase tracking-widest">TBA Key</span>
-                <span className={`text-[9px] font-bold ${apiStatus?.tba ? 'text-green-600' : 'text-red-500'}`}>
-                  {apiStatus == null ? '…' : apiStatus.tba ? 'Active' : 'Missing'}
-                </span>
-              </div>
-              {(form.teamProgram || 'FRC') === 'FTC' && (
-                <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600">
-                  <span className={`w-1.5 h-1.5 rounded-full ${apiStatus?.toa ? 'bg-green-500' : 'bg-orange-400'}`} />
-                  <span className="text-[9px] font-black text-slate-600 dark:text-slate-300 uppercase tracking-widest">TOA Key</span>
-                  <span className={`text-[9px] font-bold ${apiStatus?.toa ? 'text-green-600' : 'text-orange-500'}`}>
-                    {apiStatus == null ? '…' : apiStatus.toa ? 'Active' : 'Add in Secrets'}
-                  </span>
-                </div>
-              )}
-            </div>
           </div>
 
           <div>
@@ -583,28 +486,9 @@ const ControlPanel: React.FC<ControlPanelProps> = ({ currentUserRoles, currentUs
                   onChange={handleLogoUpload}
                 />
                 <div className="flex flex-wrap gap-2">
-                  {(form.teamProgram || 'FRC') === 'FRC' ? (
-                    <button
-                      onClick={fetchTbaLogo}
-                      disabled={logoLoading || logoUploading || !form.teamNumber}
-                      className="flex items-center gap-2 px-3 py-2 text-xs font-bold border border-slate-200 dark:border-slate-600 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors disabled:opacity-50 text-slate-700 dark:text-slate-300"
-                    >
-                      {logoLoading ? <Loader2 size={13} className="animate-spin" /> : <Image size={13} />}
-                      Fetch from TBA
-                    </button>
-                  ) : (
-                    <button
-                      onClick={fetchToaLogo}
-                      disabled={logoLoading || logoUploading || !form.teamNumber}
-                      className="flex items-center gap-2 px-3 py-2 text-xs font-bold border border-slate-200 dark:border-slate-600 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors disabled:opacity-50 text-slate-700 dark:text-slate-300"
-                    >
-                      {logoLoading ? <Loader2 size={13} className="animate-spin" /> : <Image size={13} />}
-                      Fetch from TOA
-                    </button>
-                  )}
                   <button
                     onClick={() => logoFileRef.current?.click()}
-                    disabled={logoLoading || logoUploading}
+                    disabled={logoUploading}
                     className="flex items-center gap-2 px-3 py-2 text-xs font-bold border border-slate-200 dark:border-slate-600 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors disabled:opacity-50 text-slate-700 dark:text-slate-300"
                   >
                     {logoUploading ? <Loader2 size={13} className="animate-spin" /> : <Upload size={13} />}
@@ -781,111 +665,9 @@ const ControlPanel: React.FC<ControlPanelProps> = ({ currentUserRoles, currentUs
         <BadgeSettings />
       </SectionCard>
 
-      <SectionCard title="API Integrations" subtitle="Store your API keys here so the app can pull live match data, rankings, and schedules.">
+      <SectionCard title="API Integrations" subtitle="Connect FIRST's official FTC Events API to import events, team lists, match schedules and rankings.">
         <div className="space-y-5">
-          {([
-            {
-              field: 'tba' as const,
-              label: 'The Blue Alliance',
-              badge: 'FRC',
-              badgeColor: '#2563eb',
-              description: 'Match schedules, rankings, and team data for FRC events.',
-              link: 'https://www.thebluealliance.com/account',
-              linkLabel: 'Get key at thebluealliance.com →',
-              placeholder: 'Paste your TBA Read API Key…',
-              active: apiStatus?.tba,
-            },
-            {
-              field: 'toa' as const,
-              label: 'The Orange Alliance',
-              badge: 'FTC',
-              badgeColor: '#f97316',
-              description: 'Match schedules and rankings for FTC events.',
-              link: 'https://theorangealliance.org/account',
-              linkLabel: 'Get key at theorangealliance.org →',
-              placeholder: 'Paste your TOA API Key…',
-              active: apiStatus?.toa,
-            },
-            {
-              field: 'nexus' as const,
-              label: 'FRC Nexus',
-              badge: 'FRC',
-              badgeColor: '#7c3aed',
-              description: 'Live queue status, pit locations, and field maps during events.',
-              link: 'https://frc.nexus',
-              linkLabel: 'Get key at frc.nexus →',
-              placeholder: 'Paste your Nexus API Key…',
-              active: apiStatus?.nexus,
-            },
-          ]).map(({ field, label, badge, badgeColor, description, link, linkLabel, placeholder, active }) => (
-            <div key={field} className="rounded-xl border border-slate-100 dark:border-slate-700 overflow-hidden">
-              <div className="flex items-center justify-between px-4 py-3 bg-slate-50 dark:bg-slate-700/40 border-b border-slate-100 dark:border-slate-700">
-                <div className="flex items-center gap-2.5">
-                  <span className="px-2 py-0.5 rounded-md text-[9px] font-black text-white uppercase tracking-widest" style={{ backgroundColor: badgeColor }}>{badge}</span>
-                  <span className="text-sm font-black text-slate-800 dark:text-slate-100">{label}</span>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <span className={`w-2 h-2 rounded-full ${active ? 'bg-green-500' : 'bg-slate-300 dark:bg-slate-600'}`} />
-                  <span className={`text-[10px] font-black uppercase tracking-widest ${active ? 'text-green-600 dark:text-green-400' : 'text-slate-400 dark:text-slate-500'}`}>
-                    {active ? 'Active' : 'Not set'}
-                  </span>
-                </div>
-              </div>
-              <div className="p-4 space-y-3">
-                <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">{description}</p>
-                <a href={link} target="_blank" rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 text-[11px] font-black text-teamColor hover:opacity-75 transition-opacity">
-                  {linkLabel}
-                </a>
-                <div className="flex gap-2">
-                  <div className="relative flex-1">
-                    <input
-                      type={apiKeyVisible[field] ? 'text' : 'password'}
-                      value={apiKeyForm[field]}
-                      onChange={e => setApiKeyForm(f => ({ ...f, [field]: e.target.value }))}
-                      placeholder={active ? '●●●●●●●● (saved — paste new key to replace)' : placeholder}
-                      className="w-full px-3 py-2 pr-9 text-xs font-mono border border-slate-200 dark:border-slate-600 rounded-xl bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 placeholder:text-slate-300 dark:placeholder:text-slate-600"
-                      style={{ '--tw-ring-color': form.themeColor } as React.CSSProperties & Record<string, string>}
-                      onKeyDown={e => e.key === 'Enter' && apiKeyForm[field].trim() && handleSaveApiKey(field)}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setApiKeyVisible(v => ({ ...v, [field]: !v[field] }))}
-                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
-                      tabIndex={-1}
-                    >
-                      <KeyRound size={13} />
-                    </button>
-                  </div>
-                  <button
-                    onClick={() => handleSaveApiKey(field)}
-                    disabled={!apiKeyForm[field].trim() || apiKeySaving[field]}
-                    className="flex items-center gap-1.5 px-3 py-2 text-[10px] font-black text-white rounded-xl transition-all disabled:opacity-40 shrink-0"
-                    style={{ backgroundColor: form.themeColor }}
-                  >
-                    {apiKeySaving[field] ? <Loader2 size={11} className="animate-spin" /> : apiKeySaved[field] ? <Check size={11} /> : <Save size={11} />}
-                    {apiKeySaved[field] ? 'Saved!' : 'Save'}
-                  </button>
-                </div>
-                {apiKeyError[field] && (
-                  <p className="text-[10px] font-bold text-red-500 flex items-center gap-1"><AlertTriangle size={10} />{apiKeyError[field]}</p>
-                )}
-                {active && (
-                  <button
-                    onClick={() => {
-                      setApiKeyForm(f => ({ ...f, [field]: ' ' }));
-                      setTimeout(() => handleSaveApiKey(field), 0);
-                    }}
-                    className="text-[10px] font-bold text-red-400 hover:text-red-500 flex items-center gap-1 transition-colors"
-                  >
-                    <X size={10} /> Remove key
-                  </button>
-                )}
-              </div>
-            </div>
-          ))}
-
-          {/* FIRST's own FTC API — a username + token pair, so it gets its own card. */}
+          {/* FIRST's FTC Events API — authenticates with a username + token pair. */}
           <div className="rounded-xl border border-slate-100 dark:border-slate-700 overflow-hidden">
             <div className="flex items-center justify-between px-4 py-3 bg-slate-50 dark:bg-slate-700/40 border-b border-slate-100 dark:border-slate-700">
               <div className="flex items-center gap-2.5">

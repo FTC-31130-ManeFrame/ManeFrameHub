@@ -23,8 +23,6 @@ const PUBLIC: Array<{ method: string; test: (path: string) => boolean }> = [
   { method: "GET", test: (p) => p === "/settings/pwa-icon.png" },
   { method: "GET", test: (p) => p === "/settings/pwa-icon.svg" },
   { method: "GET", test: (p) => p === "/settings" },        // team identity/theme for the login screen
-  { method: "GET", test: (p) => p === "/settings/tba-logo" },
-  { method: "GET", test: (p) => p === "/settings/toa-logo" },
   { method: "GET", test: (p) => p === "/settings/api-status" },
   // Personal calendar subscription feed — polled by external calendar apps
   // (Google/Apple/Outlook) that never carry a session cookie. The feed token
@@ -48,7 +46,7 @@ function guestAllowed(method: string, path: string): boolean {
     /^\/scout\/team\//.test(path) ||
     /^\/events\/\d+\/(team-claims|match-exceptions)$/.test(path) ||
     /^\/seasons\/\d+\/templates$/.test(path) ||   // field labels for rendering scouting data
-    /^\/(tba|toa|nexus)\//.test(path)            // read-only third-party proxies for viewing
+    /^\/first\/event\/[^/]+\/(matches|rankings|teams)$/.test(path)   // FIRST schedule/results for viewing
   );
 }
 

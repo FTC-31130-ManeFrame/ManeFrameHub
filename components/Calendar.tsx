@@ -3,6 +3,7 @@ import { ChevronLeft, ChevronRight, CalendarDays, Trophy, Users, Plus, X, Pencil
 import { api } from '../services/api';
 import { useTeamSettings } from '../contexts/TeamSettingsContext';
 import { todayLocalStr } from '../utils/dates';
+import FirstEventImportModal from './FirstEventImportModal';
 import EventRosterModal from './EventRosterModal';
 import UserMultiSelect from './UserMultiSelect';
 import { CATEGORY_STYLES, HOUR_CATEGORIES } from './hourCategoryStyles';
@@ -131,18 +132,7 @@ const Calendar: React.FC<CalendarProps> = ({ currentUser }) => {
   const [rosterEvent, setRosterEvent] = useState<{ id: number; title: string; startDate: string } | null>(null);
   const [signupBusy, setSignupBusy] = useState(false);
   const [signupDone, setSignupDone] = useState(false);
-  const [tbaModal, setTbaModal] = useState(false);
-  const [tbaLoading, setTbaLoading] = useState(false);
-  const [tbaEvents, setTbaEvents] = useState<any[]>([]);
-  const [tbaSelected, setTbaSelected] = useState<Set<string>>(new Set());
-  const [tbaImporting, setTbaImporting] = useState(false);
-  const [tbaError, setTbaError] = useState('');
-  const [toaModal, setToaModal] = useState(false);
-  const [toaLoading, setToaLoading] = useState(false);
-  const [toaEvents, setToaEvents] = useState<any[]>([]);
-  const [toaSelected, setToaSelected] = useState<Set<string>>(new Set());
-  const [toaImporting, setToaImporting] = useState(false);
-  const [toaError, setToaError] = useState('');
+  const [importModal, setImportModal] = useState(false);
 
   const [subscribeModal, setSubscribeModal] = useState(false);
   const [feedUrls, setFeedUrls] = useState<{ url: string; webcalUrl: string } | null>(null);
@@ -430,73 +420,6 @@ const Calendar: React.FC<CalendarProps> = ({ currentUser }) => {
     }).catch(() => {});
   };
 
-  const openTbaModal = async () => {
-    setTbaModal(true);
-    setTbaLoading(true);
-    setTbaEvents([]);
-    setTbaSelected(new Set());
-    setTbaError('');
-    try {
-      const data = await api.calendar.tbaPreview(parseInt(currentUser.id));
-      setTbaEvents(data);
-      setTbaSelected(new Set(data.map((e: any) => e.key)));
-    } catch (e: any) {
-      setTbaError(e.message || 'Failed to fetch TBA events');
-    } finally {
-      setTbaLoading(false);
-    }
-  };
-
-  const handleTbaImport = async () => {
-    const toImport = tbaEvents.filter(e => tbaSelected.has(e.key));
-    if (toImport.length === 0) return;
-    setTbaImporting(true);
-    try {
-      const result = await api.calendar.tbaImport(parseInt(currentUser.id), toImport);
-      await fetchEvents();
-      setTbaModal(false);
-      alert(`Imported ${result.created} event(s). ${result.skipped > 0 ? `${result.skipped} duplicate(s) skipped.` : ''}`);
-    } catch (e: any) {
-      setTbaError(e.message || 'Failed to import events');
-    } finally {
-      setTbaImporting(false);
-    }
-  };
-
-  const openToaModal = async () => {
-    setToaModal(true);
-    setToaLoading(true);
-    setToaEvents([]);
-    setToaSelected(new Set());
-    setToaError('');
-    try {
-      // FTC events come from FIRST's official API; the import below is
-      // source-agnostic and consumes the same shape TOA used to produce.
-      const data = await api.calendar.firstPreview(parseInt(currentUser.id));
-      setToaEvents(data);
-      setToaSelected(new Set(data.map((e: any) => e.key)));
-    } catch (e: any) {
-      setToaError(e.message || 'Failed to fetch FTC events');
-    } finally {
-      setToaLoading(false);
-    }
-  };
-
-  const handleToaImport = async () => {
-    const toImport = toaEvents.filter(e => toaSelected.has(e.key));
-    if (toImport.length === 0) return;
-    setToaImporting(true);
-    try {
-      const result = await api.calendar.toaImport(parseInt(currentUser.id), toImport);
-      await fetchEvents();
-      setToaModal(false);
-      alert(`Imported ${result.created} event(s). ${result.skipped > 0 ? `${result.skipped} duplicate(s) skipped.` : ''}`);
-    } catch (e: any) {
-      setToaError(e.message || 'Failed to import events');
-    } finally {
-      setToaImporting(false);
-    }
-  };
 
   const getEventStartDate = (ev: CalendarEvent | VirtualInstance) =>
     '_isVirtual' in ev ? (ev as VirtualInstance)._instanceDate : ev.startDate;
@@ -520,21 +443,12 @@ const Calendar: React.FC<CalendarProps> = ({ currentUser }) => {
               >
                 <Archive size={12} /> Archived
               </button>
-              {settings.teamProgram === 'FTC' ? (
-                <button
-                  onClick={openToaModal}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-orange-500 text-white rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-orange-600 transition-all shadow-lg shadow-orange-500/20"
-                >
-                  <Download size={12} /> Import from TOA
-                </button>
-              ) : (
-                <button
-                  onClick={openTbaModal}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-blue-700 transition-all shadow-lg shadow-blue-600/20"
-                >
-                  <Download size={12} /> Import from TBA
-                </button>
-              )}
+              <button
+                onClick={() => setImportModal(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-900 dark:bg-slate-700 text-white rounded-lg text-[10px] font-black uppercase tracking-widest hover:opacity-90 transition-all shadow-lg"
+              >
+                <Download size={12} /> Import FTC Event
+              </button>
               <button
                 onClick={() => openAdd()}
                 className="flex items-center gap-1.5 px-3 py-1.5 bg-teamColor text-white rounded-lg text-[10px] font-black uppercase tracking-widest hover:opacity-90 transition-all shadow-lg shadow-teamColor/20"
@@ -1258,162 +1172,11 @@ const Calendar: React.FC<CalendarProps> = ({ currentUser }) => {
         </div>
       )}
 
-      {tbaModal && (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-[300] p-4 animate-in fade-in duration-200">
-          <div className="bg-white dark:bg-slate-800 rounded-2xl w-full max-w-lg shadow-2xl border-t-4 border-blue-600 max-h-[85vh] flex flex-col">
-            <div className="flex items-center justify-between p-5 border-b border-slate-100 dark:border-slate-700">
-              <div>
-                <h2 className="text-lg font-black text-slate-900 dark:text-white uppercase tracking-tight flex items-center gap-2">
-                  <Trophy size={18} className="text-blue-600" /> Import from TBA
-                </h2>
-                <p className="text-[10px] text-blue-500 font-bold uppercase tracking-widest mt-0.5">
-                  Team {settings.teamNumber} · {today.getFullYear()} Season Events
-                </p>
-              </div>
-              <button onClick={() => setTbaModal(false)} className="p-2 bg-slate-100 dark:bg-slate-700 rounded-xl hover:text-red-600 transition-colors">
-                <X size={16} />
-              </button>
-            </div>
-            <div className="flex-1 overflow-y-auto p-5">
-              {tbaLoading ? (
-                <div className="flex items-center justify-center py-12">
-                  <Loader2 size={28} className="animate-spin text-blue-400" />
-                </div>
-              ) : tbaError ? (
-                <div className="flex items-center gap-3 p-4 bg-red-50 dark:bg-red-900/20 rounded-xl text-red-600 dark:text-red-400">
-                  <AlertTriangle size={18} />
-                  <p className="text-sm font-bold">{tbaError}</p>
-                </div>
-              ) : tbaEvents.length === 0 ? (
-                <p className="text-slate-400 dark:text-slate-500 text-sm font-bold text-center py-8">No events found for team {settings.teamNumber} in {today.getFullYear()}.</p>
-              ) : (
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between mb-3">
-                    <p className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">{tbaEvents.length} event(s) found</p>
-                    <div className="flex gap-2">
-                      <button onClick={() => setTbaSelected(new Set(tbaEvents.map(e => e.key)))} className="text-[9px] font-black text-blue-600 hover:underline uppercase">Select All</button>
-                      <button onClick={() => setTbaSelected(new Set())} className="text-[9px] font-black text-slate-400 hover:underline uppercase">None</button>
-                    </div>
-                  </div>
-                  {tbaEvents.map(ev => {
-                    const checked = tbaSelected.has(ev.key);
-                    return (
-                      <button
-                        key={ev.key}
-                        onClick={() => setTbaSelected(prev => {
-                          const next = new Set(prev);
-                          checked ? next.delete(ev.key) : next.add(ev.key);
-                          return next;
-                        })}
-                        className={`w-full flex items-start gap-3 p-3 rounded-xl border-2 text-left transition-all ${checked ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20' : 'border-slate-200 dark:border-slate-600 hover:border-slate-300'}`}
-                      >
-                        <div className={`mt-0.5 flex-shrink-0 w-4 h-4 rounded border-2 flex items-center justify-center ${checked ? 'border-blue-500 bg-blue-500' : 'border-slate-300 dark:border-slate-500'}`}>
-                          {checked && <X size={10} className="text-white" style={{ transform: 'rotate(45deg) scaleX(-1)' }} />}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-black text-slate-900 dark:text-white">{ev.name}</p>
-                          <p className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">{ev.startDate}{ev.endDate && ev.endDate !== ev.startDate ? ` – ${ev.endDate}` : ''}</p>
-                          {ev.location && <p className="text-[10px] text-slate-400 dark:text-slate-500">{ev.location}</p>}
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-            {!tbaLoading && !tbaError && tbaEvents.length > 0 && (
-              <div className="p-5 border-t border-slate-100 dark:border-slate-700">
-                {tbaError && <p className="text-red-600 text-xs font-bold mb-2">{tbaError}</p>}
-                <button
-                  onClick={handleTbaImport}
-                  disabled={tbaImporting || tbaSelected.size === 0}
-                  className="w-full py-3 bg-blue-600 text-white font-black rounded-xl hover:bg-blue-700 uppercase tracking-widest text-sm transition-all disabled:opacity-50 flex items-center justify-center gap-2"
-                >
-                  {tbaImporting ? <><Loader2 size={14} className="animate-spin" /> Importing...</> : `Import ${tbaSelected.size} Event(s)`}
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {toaModal && (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-[300] p-4 animate-in fade-in duration-200">
-          <div className="bg-white dark:bg-slate-800 rounded-2xl w-full max-w-lg shadow-2xl border-t-4 border-orange-500 max-h-[85vh] flex flex-col">
-            <div className="flex items-center justify-between p-5 border-b border-slate-100 dark:border-slate-700">
-              <div>
-                <h2 className="text-lg font-black text-slate-900 dark:text-white uppercase tracking-tight flex items-center gap-2">
-                  <Trophy size={18} className="text-orange-500" /> Import from TOA
-                </h2>
-                <p className="text-[10px] text-orange-500 font-bold uppercase tracking-widest mt-0.5">
-                  FTC Team {settings.teamNumber} · Current Season Events
-                </p>
-              </div>
-              <button onClick={() => setToaModal(false)} className="p-2 bg-slate-100 dark:bg-slate-700 rounded-xl hover:text-red-600 transition-colors">
-                <X size={16} />
-              </button>
-            </div>
-            <div className="flex-1 overflow-y-auto p-5">
-              {toaLoading ? (
-                <div className="flex items-center justify-center py-12">
-                  <Loader2 size={28} className="animate-spin text-orange-400" />
-                </div>
-              ) : toaError ? (
-                <div className="flex items-center gap-3 p-4 bg-red-50 dark:bg-red-900/20 rounded-xl text-red-600 dark:text-red-400">
-                  <AlertTriangle size={18} />
-                  <p className="text-sm font-bold">{toaError}</p>
-                </div>
-              ) : toaEvents.length === 0 ? (
-                <p className="text-slate-400 dark:text-slate-500 text-sm font-bold text-center py-8">No events found for FTC team {settings.teamNumber} this season.</p>
-              ) : (
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between mb-3">
-                    <p className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">{toaEvents.length} event(s) found</p>
-                    <div className="flex gap-2">
-                      <button onClick={() => setToaSelected(new Set(toaEvents.map(e => e.key)))} className="text-[9px] font-black text-orange-500 hover:underline uppercase">Select All</button>
-                      <button onClick={() => setToaSelected(new Set())} className="text-[9px] font-black text-slate-400 hover:underline uppercase">None</button>
-                    </div>
-                  </div>
-                  {toaEvents.map(ev => {
-                    const checked = toaSelected.has(ev.key);
-                    return (
-                      <button
-                        key={ev.key}
-                        onClick={() => setToaSelected(prev => {
-                          const next = new Set(prev);
-                          checked ? next.delete(ev.key) : next.add(ev.key);
-                          return next;
-                        })}
-                        className={`w-full flex items-start gap-3 p-3 rounded-xl border-2 text-left transition-all ${checked ? 'border-orange-500 bg-orange-50 dark:bg-orange-900/20' : 'border-slate-200 dark:border-slate-600 hover:border-slate-300'}`}
-                      >
-                        <div className={`mt-0.5 flex-shrink-0 w-4 h-4 rounded border-2 flex items-center justify-center ${checked ? 'border-orange-500 bg-orange-500' : 'border-slate-300 dark:border-slate-500'}`}>
-                          {checked && <X size={10} className="text-white" style={{ transform: 'rotate(45deg) scaleX(-1)' }} />}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-black text-slate-900 dark:text-white">{ev.name}</p>
-                          <p className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">{ev.startDate}{ev.endDate && ev.endDate !== ev.startDate ? ` – ${ev.endDate}` : ''}</p>
-                          {ev.location && <p className="text-[10px] text-slate-400 dark:text-slate-500">{ev.location}</p>}
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-            {!toaLoading && !toaError && toaEvents.length > 0 && (
-              <div className="p-5 border-t border-slate-100 dark:border-slate-700">
-                {toaError && <p className="text-red-600 text-xs font-bold mb-2">{toaError}</p>}
-                <button
-                  onClick={handleToaImport}
-                  disabled={toaImporting || toaSelected.size === 0}
-                  className="w-full py-3 bg-orange-500 text-white font-black rounded-xl hover:bg-orange-600 uppercase tracking-widest text-sm transition-all disabled:opacity-50 flex items-center justify-center gap-2"
-                >
-                  {toaImporting ? <><Loader2 size={14} className="animate-spin" /> Importing...</> : `Import ${toaSelected.size} Event(s)`}
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
+      {importModal && (
+        <FirstEventImportModal
+          onClose={() => setImportModal(false)}
+          onImported={() => fetchEvents()}
+        />
       )}
 
       {rosterEvent && (

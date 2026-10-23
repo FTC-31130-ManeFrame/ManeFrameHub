@@ -316,7 +316,7 @@ const App: React.FC = () => {
     try {
       await api.seed();
       await fetchData();
-      alert("Database seeded successfully! Log in as 'coach_mentor' or 'captain10991' with password 'changeme'.");
+      alert("Database seeded successfully! Log in as 'coach_mentor' or 'team_captain' with password 'changeme'.");
     } catch (e) {
       console.error("Seeding failed", e);
       alert("Seeding failed. Please try again.");
@@ -517,7 +517,7 @@ const App: React.FC = () => {
               }} className="space-y-8">
                 <div className="space-y-2">
                     <label className="block text-xs font-black uppercase tracking-[0.2em] ml-2" style={{ color: '#1e293b' }}>Secure Username</label>
-                    <input name="username" autoComplete="username" placeholder="coach_mentor / captain10991" className="w-full p-6 border-2 border-slate-300 rounded-3xl outline-none focus:ring-4 focus:ring-teamColor/10 focus:border-teamColor transition-all font-black uppercase text-sm placeholder:text-slate-400" style={{ backgroundColor: '#ffffff', color: '#0f172a' }} />
+                    <input name="username" autoComplete="username" placeholder="Username" className="w-full p-6 border-2 border-slate-300 rounded-3xl outline-none focus:ring-4 focus:ring-teamColor/10 focus:border-teamColor transition-all font-black uppercase text-sm placeholder:text-slate-400" style={{ backgroundColor: '#ffffff', color: '#0f172a' }} />
                 </div>
                 <div className="space-y-2">
                     <label className="block text-xs font-black uppercase tracking-[0.2em] ml-2" style={{ color: '#1e293b' }}>Access Key</label>

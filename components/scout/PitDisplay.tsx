@@ -1,6 +1,7 @@
 import React from 'react';
 import { X, Calendar, AlertCircle, Zap, Brain } from 'lucide-react';
 import { useTeamSettings } from '../../contexts/TeamSettingsContext';
+import { computeAggregates, type TemplateField } from '../../shared/scoutingTemplates';
 
 interface PitDisplayProps {
   pitSubTab: 'live' | 'rankings';
@@ -8,12 +9,10 @@ interface PitDisplayProps {
   pitDisplayAlerts: any[];
   dismissedPitAlertIds: Set<number>;
   onDismissPitAlert: (id: number) => void;
-  nexusData: any;
-  nexusLoading: boolean;
-  nexusError: string | null;
-  nexusCountdown: string | null;
-  onFetchNexusData: (key: string) => void;
-  onFetchTbaData: (key: string) => void;
+  /** Re-fetch the schedule, results and rankings from FIRST. */
+  onRefreshEventData: () => void;
+  /** The event's match template — drives the stats shown per robot. */
+  matchTemplate?: { fields: TemplateField[] };
   tbaMatches: any[];
   tbaLoading: boolean;
   tbaRecord: { wins: number; losses: number; ties: number } | null;
@@ -22,39 +21,21 @@ interface PitDisplayProps {
   matchScoutsData: any[];
   activeEvent: any;
   isCoachOrCaptain: boolean;
-  dismissedBreaks: Set<string>;
-  setDismissedBreaks: React.Dispatch<React.SetStateAction<Set<string>>>;
-  dismissedAnnouncements: Set<string>;
-  setDismissedAnnouncements: React.Dispatch<React.SetStateAction<Set<string>>>;
-  dismissedParts: Set<string>;
-  setDismissedParts: React.Dispatch<React.SetStateAction<Set<string>>>;
   onOpenRobotByNumber: (num: number) => void;
   onSetSelectedRobot: (r: any) => void;
   onGenerateGeminiReport: (m: any) => void;
 }
 
-const extractAnnouncementText = (a: any): string => {
-  if (typeof a === 'string') return a;
-  return a?.message ?? a?.text ?? a?.body ?? a?.content ?? a?.announcement ?? a?.description ?? '';
-};
-
-const extractPartsRequestText = (r: any): string => {
-  if (typeof r === 'string') return r;
-  return r?.parts ?? r?.request ?? r?.item ?? r?.part ?? r?.message ?? r?.text ?? r?.description ?? '';
-};
-
 const PitDisplay: React.FC<PitDisplayProps> = ({
   pitSubTab, setPitSubTab, pitDisplayAlerts, dismissedPitAlertIds, onDismissPitAlert,
-  nexusData, nexusLoading, nexusError, nexusCountdown, onFetchNexusData, onFetchTbaData,
+  onRefreshEventData, matchTemplate,
   tbaMatches, tbaLoading, tbaRecord, tbaRankings, pitScouts, matchScoutsData,
-  activeEvent, isCoachOrCaptain, dismissedBreaks, setDismissedBreaks,
-  dismissedAnnouncements, setDismissedAnnouncements, dismissedParts, setDismissedParts,
+  activeEvent, isCoachOrCaptain,
   onOpenRobotByNumber, onSetSelectedRobot, onGenerateGeminiReport,
 }) => {
   const { settings } = useTeamSettings();
   const teamNumber = settings.teamNumber;
-  const teamKeyPrefix = settings.teamProgram === 'FTC' ? 'ftc' : 'frc';
-  const myTeamKey = `${teamKeyPrefix}${teamNumber}`;
+  const myTeamKey = `ftc${teamNumber}`;
   return (
     <div className="space-y-6 md:space-y-8">
 
@@ -111,422 +92,15 @@ const PitDisplay: React.FC<PitDisplayProps> = ({
         );
       })()}
 
-      {nexusData && (() => {
-        const firstPendingAnnouncement = nexusData.announcements?.find(
-          (a: any) => !dismissedAnnouncements.has(String(a?.id ?? extractAnnouncementText(a)))
-        );
-        const pendingParts: any[] = (nexusData.partsRequests ?? []).filter(
-          (r: any) => !dismissedParts.has(String(r?.id ?? extractPartsRequestText(r)))
-        );
-        const matches: any[] = nexusData.matches || [];
-        const activeStatusSet = new Set(['Now queuing', 'On deck', 'On field']);
-        const activeMatchIdx = matches.findIndex((m: any) => activeStatusSet.has(m.status));
-        const lastCompletedIdx = (() => {
-          for (let i = matches.length - 1; i >= 0; i--) {
-            if (!activeStatusSet.has(matches[i].status) && matches[i].status !== 'Queuing soon') return i;
-          }
-          return -1;
-        })();
-        const breakMatchIdx = activeMatchIdx >= 0 ? activeMatchIdx : lastCompletedIdx;
-        const breakMatch = breakMatchIdx >= 0 ? matches[breakMatchIdx] : null;
-        const breakId = breakMatch
-          ? `${activeEvent?.id ?? ''}::${breakMatch.label ?? ''}::${breakMatch.breakAfter ?? ''}`
-          : '';
-        const nextMatchAfterBreak = breakMatchIdx >= 0 ? matches[breakMatchIdx + 1] : null;
-        const resumeTime = nextMatchAfterBreak?.times?.estimatedQueueTime || nextMatchAfterBreak?.times?.estimatedStartTime;
-        const pendingBreak = breakMatch?.breakAfter && !dismissedBreaks.has(breakId) ? breakMatch : null;
-
-        if (pendingBreak) {
-          return (
-            <div className="fixed inset-0 z-[300] bg-black/90 backdrop-blur-sm flex items-center justify-center p-6">
-              <div className="bg-white dark:bg-slate-800 rounded-3xl w-full max-w-lg p-8 text-center shadow-2xl border-t-8 border-orange-500">
-                <div className="flex justify-end mb-2">
-                  <button onClick={() => setDismissedBreaks(prev => new Set([...prev, breakId]))} className="p-2 bg-slate-100 dark:bg-slate-700 rounded-xl hover:bg-slate-200 transition-all"><X size={20} /></button>
-                </div>
-                <div className="w-16 h-16 bg-orange-100 dark:bg-orange-900/40 rounded-2xl flex items-center justify-center mx-auto mb-4">
-                  <AlertCircle size={32} className="text-orange-600" />
-                </div>
-                <h2 className="text-2xl font-black text-slate-900 dark:text-white uppercase tracking-tight mb-2">Break After This Match</h2>
-                <p className="text-base text-slate-700 dark:text-slate-300 font-medium">{pendingBreak.breakAfter}</p>
-                {resumeTime && (
-                  <p className="text-sm text-orange-600 font-black mt-3">
-                    Resumes at {new Date(resumeTime).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
-                  </p>
-                )}
-              </div>
-            </div>
-          );
-        }
-
-        if (firstPendingAnnouncement) {
-          const key = String(firstPendingAnnouncement.id ?? firstPendingAnnouncement.message ?? firstPendingAnnouncement);
-          return (
-            <div className="fixed inset-0 z-[300] bg-black/90 backdrop-blur-sm flex items-center justify-center p-6">
-              <div className="bg-white dark:bg-slate-800 rounded-3xl w-full max-w-lg p-8 text-center shadow-2xl border-t-8 border-yellow-500">
-                <div className="flex justify-end mb-2">
-                  <button onClick={() => setDismissedAnnouncements(prev => new Set([...prev, key]))} className="p-2 bg-slate-100 dark:bg-slate-700 rounded-xl hover:bg-slate-200 transition-all"><X size={20} /></button>
-                </div>
-                <div className="w-16 h-16 bg-yellow-100 dark:bg-yellow-900/40 rounded-2xl flex items-center justify-center mx-auto mb-4">
-                  <Zap size={32} className="text-yellow-600" />
-                </div>
-                <h2 className="text-2xl font-black text-slate-900 dark:text-white uppercase tracking-tight mb-3">Announcement</h2>
-                <p className="text-base text-slate-700 dark:text-slate-300 font-medium">{extractAnnouncementText(firstPendingAnnouncement)}</p>
-              </div>
-            </div>
-          );
-        }
-
-        if (pendingParts.length > 0) {
-          const dismissAll = () => {
-            setDismissedParts(prev => {
-              const next = new Set(prev);
-              pendingParts.forEach((r: any) => next.add(String(r?.id ?? extractPartsRequestText(r))));
-              return next;
-            });
-          };
-          return (
-            <div className="fixed inset-0 z-[300] bg-black/90 backdrop-blur-sm flex items-center justify-center p-6">
-              <div className="bg-white dark:bg-slate-800 rounded-3xl w-full max-w-lg shadow-2xl border-t-8 border-red-600 overflow-hidden">
-                <div className="flex items-center justify-between px-8 pt-6 pb-4">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 bg-red-100 dark:bg-red-900/40 rounded-xl flex items-center justify-center flex-shrink-0">
-                      <AlertCircle size={22} className="text-red-600" />
-                    </div>
-                    <div>
-                      <p className="text-[10px] font-black text-red-600 uppercase tracking-widest">Parts Request{pendingParts.length > 1 ? 's' : ''}</p>
-                      <p className="text-xl font-black text-slate-900 dark:text-white uppercase tracking-tight leading-tight">
-                        {pendingParts.length} Open Request{pendingParts.length > 1 ? 's' : ''}
-                      </p>
-                    </div>
-                  </div>
-                  <button onClick={dismissAll} className="p-2 bg-slate-100 dark:bg-slate-700 rounded-xl hover:bg-slate-200 dark:hover:bg-slate-600 transition-all flex-shrink-0">
-                    <X size={20} />
-                  </button>
-                </div>
-                <div className="px-8 pb-2 space-y-3 max-h-72 overflow-y-auto">
-                  {pendingParts.map((r: any, i: number) => (
-                    <div key={i} className="flex items-start gap-3 p-3 bg-red-50 dark:bg-red-900/20 rounded-xl border border-red-100 dark:border-red-800">
-                      {(r?.requestedByTeam ?? r?.teamNumber) && (
-                        <span className="flex-shrink-0 px-2.5 py-1 bg-red-600 text-white rounded-lg font-black text-xs">
-                          #{r.requestedByTeam ?? r.teamNumber}
-                        </span>
-                      )}
-                      <div className="min-w-0">
-                        <p className="text-sm font-bold text-slate-800 dark:text-slate-100 leading-snug">{extractPartsRequestText(r)}</p>
-                        {r?.quantity != null && <p className="text-xs text-red-500 dark:text-red-400 font-bold mt-0.5">Qty: {r.quantity}</p>}
-                        {r?.notes && extractPartsRequestText(r) !== r.notes && (
-                          <p className="text-xs text-slate-500 dark:text-slate-400 italic mt-0.5">{r.notes}</p>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-                <div className="px-8 py-5">
-                  <button onClick={dismissAll}
-                    className="w-full py-3 bg-red-600 hover:bg-red-700 text-white font-black text-sm uppercase tracking-widest rounded-2xl transition-colors">
-                    Acknowledge All
-                  </button>
-                </div>
-              </div>
-            </div>
-          );
-        }
-
-        return null;
-      })()}
-
       {pitSubTab === 'live' && (
-        <div className="grid grid-cols-1 2xl:grid-cols-2 gap-6 2xl:gap-8">
-
-          <div>
-            {activeEvent?.nexusEventKey ? (
-              <div className="bg-white dark:bg-slate-800 rounded-2xl md:rounded-[32px] border-2 border-slate-100 dark:border-slate-700 overflow-hidden">
-                <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 dark:border-slate-700 bg-gradient-to-r from-violet-600/10 to-blue-600/10">
-                  <div className="flex items-center gap-3">
-                    <div className="w-2.5 h-2.5 rounded-full bg-violet-500 animate-pulse" />
-                    <span className="text-xs font-black text-slate-900 dark:text-white uppercase tracking-widest">FRC Nexus Live</span>
-                    {nexusData?.nowQueuing && (
-                      <span className="px-2.5 py-1 bg-red-600 text-white text-[10px] font-black rounded-lg uppercase tracking-widest animate-pulse">
-                        {typeof nexusData.nowQueuing === 'string' ? nexusData.nowQueuing : (nexusData.nowQueuing?.label ?? nexusData.nowQueuing?.match ?? '')}
-                      </span>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-3">
-                    {nexusLoading && <span className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Refreshing...</span>}
-                    <button onClick={() => onFetchNexusData(activeEvent.nexusEventKey)}
-                      className="px-3 py-1.5 bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 font-black rounded-lg text-[10px] uppercase tracking-widest hover:bg-slate-200 transition-all">
-                      Refresh
-                    </button>
-                  </div>
-                </div>
-
-                {nexusError ? (
-                  <div className="px-6 py-8 text-center">
-                    {nexusError === 'EVENT_ENDED' ? (
-                      <>
-                        <p className="text-sm font-black text-slate-500 dark:text-slate-400 uppercase tracking-tight">Event no longer active</p>
-                        <p className="text-xs text-slate-400 mt-1">This event has ended and is no longer available in Nexus.</p>
-                      </>
-                    ) : (
-                      <>
-                        <p className="text-sm font-black text-red-500 uppercase tracking-tight">Error loading Nexus data</p>
-                        <p className="text-xs text-slate-400 mt-1">{nexusError}</p>
-                      </>
-                    )}
-                  </div>
-                ) : nexusLoading && !nexusData ? (
-                  <div className="px-6 py-8 text-center text-slate-400 font-bold text-sm uppercase tracking-widest">Loading live data...</div>
-                ) : nexusData ? (
-                  <div className="p-6 space-y-6">
-                    {(() => {
-                      const ourMatches = (nexusData.matches || []).filter(
-                        (m: any) => (m.redTeams || []).includes(teamNumber) || (m.blueTeams || []).includes(teamNumber)
-                      );
-                      const activeMatch = ourMatches.find((m: any) =>
-                        m.status === 'Now queuing' || m.status === 'On deck' || m.status === 'On field'
-                      );
-                      const nextMatch = ourMatches.find((m: any) => m.status === 'Queuing soon');
-
-                      const statusColor = (status: string) => {
-                        if (status === 'Now queuing') return 'bg-red-600 text-white';
-                        if (status === 'On deck') return 'bg-orange-500 text-white';
-                        if (status === 'On field') return 'bg-green-600 text-white';
-                        if (status === 'Queuing soon') return 'bg-blue-600 text-white';
-                        return 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300';
-                      };
-
-                      const teamBadge = (num: number, alliance: 'red' | 'blue') => (
-                        <span key={num} className={`px-2 py-1 rounded-lg text-[11px] font-black ${
-                          num === teamNumber
-                            ? 'ring-2 ring-red-500 bg-red-50 dark:bg-red-900/40 text-red-700 dark:text-red-300 font-black'
-                            : alliance === 'red'
-                            ? 'bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-300'
-                            : 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
-                        }`}>
-                          {num === teamNumber ? '★ ' : ''}{num}
-                        </span>
-                      );
-
-                      return (
-                        <>
-                          {(activeMatch || nexusCountdown) && (
-                            <div className={`rounded-2xl p-5 flex items-center justify-between gap-4 ${
-                              activeMatch?.status === 'Now queuing' ? 'bg-red-50 dark:bg-red-900/20 border-2 border-red-300 dark:border-red-700' :
-                              activeMatch?.status === 'On deck' ? 'bg-orange-50 dark:bg-orange-900/20 border-2 border-orange-300 dark:border-orange-700' :
-                              activeMatch?.status === 'On field' ? 'bg-green-50 dark:bg-green-900/20 border-2 border-green-300 dark:border-green-700' :
-                              'bg-violet-50 dark:bg-violet-900/20 border-2 border-violet-200 dark:border-violet-800'
-                            }`}>
-                              <div>
-                                {activeMatch && (
-                                  <>
-                                    <div className="flex items-center gap-2 mb-1">
-                                      <span className={`px-2.5 py-1 rounded-lg text-[10px] font-black uppercase ${statusColor(activeMatch.status)}`}>{activeMatch.status}</span>
-                                      <span className="text-sm font-black text-slate-900 dark:text-white">{activeMatch.label}</span>
-                                    </div>
-                                    <div className="flex gap-3 mt-2">
-                                      <div className="flex items-center gap-1">
-                                        <span className="text-[9px] font-black text-red-500 uppercase tracking-widest mr-1">Red</span>
-                                        {(activeMatch.redTeams || []).map((t: number) => teamBadge(t, 'red'))}
-                                      </div>
-                                      <div className="flex items-center gap-1">
-                                        <span className="text-[9px] font-black text-blue-500 uppercase tracking-widest mr-1">Blue</span>
-                                        {(activeMatch.blueTeams || []).map((t: number) => teamBadge(t, 'blue'))}
-                                      </div>
-                                    </div>
-                                  </>
-                                )}
-                                {!activeMatch && nextMatch && (
-                                  <p className="text-sm font-black text-slate-900 dark:text-white">Next: {nextMatch.label}</p>
-                                )}
-                              </div>
-                              {nexusCountdown && (
-                                <div className="text-right flex-shrink-0">
-                                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Queue in</p>
-                                  <p className={`text-3xl font-black tabular-nums ${
-                                    nexusCountdown === 'Queue now!' ? 'text-red-600 animate-pulse' : 'text-slate-900 dark:text-white'
-                                  }`}>{nexusCountdown}</p>
-                                </div>
-                              )}
-                            </div>
-                          )}
-
-                          {nexusData.announcements?.length > 0 && (
-                            <div className="bg-yellow-50 dark:bg-yellow-900/20 border-2 border-yellow-200 dark:border-yellow-700 rounded-xl p-4">
-                              <p className="text-[9px] font-black text-yellow-700 dark:text-yellow-300 uppercase tracking-widest mb-2">Announcements</p>
-                              {nexusData.announcements.map((a: any, i: number) => (
-                                <p key={i} className="text-sm text-yellow-800 dark:text-yellow-200 font-medium">{extractAnnouncementText(a)}</p>
-                              ))}
-                            </div>
-                          )}
-
-                          {nexusData.matches?.length > 0 && (() => {
-                            const timeStr = (t: string) => new Date(t).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-                            const activeStatuses = new Set(['Queuing soon', 'Now queuing', 'On deck', 'On field']);
-                            const completedStatuses = new Set(['Results posted', 'Complete', 'Completed', 'Done', 'Played']);
-                            const matches: any[] = nexusData.matches;
-
-                            // TBA ground-truth: qual match numbers where actual_time is set = played
-                            const tbaPlayedNums = new Set<number>(
-                              tbaMatches
-                                .filter((m: any) => m.actual_time != null && m.comp_level === 'qm')
-                                .map((m: any) => m.match_number as number)
-                            );
-                            // Extract qual match number from Nexus label (e.g. "Qualification 15" → 15)
-                            const parseNum = (label: string): number | null => {
-                              const d = label?.match(/\d+/);
-                              return d ? parseInt(d[0]) : null;
-                            };
-                            // Only ONE match can physically be on the field at a time.
-                            // Find the LAST "On field" entry — that's the real current match.
-                            // Any earlier "On field" entry is stale (e.g. a practice match Nexus forgot to update).
-                            const lastOnFieldIdx = (() => {
-                              for (let i = matches.length - 1; i >= 0; i--) {
-                                if (matches[i].status === 'On field') return i;
-                              }
-                              return -1;
-                            })();
-                            // A Nexus match is truly done if TBA says so, its status explicitly says so,
-                            // it's an earlier "On field" entry superseded by a later one,
-                            // or it's a practice match and quals have already started.
-                            const isTrulyDone = (m: any): boolean => {
-                              // Once any qual match is played, ALL practice matches are over
-                              if (tbaPlayedNums.size > 0 && /practice/i.test(m.label ?? '')) return true;
-                              if (m.status === 'On field') {
-                                const idx = matches.indexOf(m);
-                                if (idx >= 0 && idx < lastOnFieldIdx) return true;
-                              }
-                              const num = parseNum(m.label);
-                              if (num != null && tbaPlayedNums.has(num)) return true;
-                              const s = m.status;
-                              return completedStatuses.has(s) || (s && !activeStatuses.has(s) && !s.toLowerCase().includes('schedul'));
-                            };
-                            // A Nexus match is truly active only if its status is active AND TBA hasn't confirmed it done
-                            const isTrulyActive = (m: any): boolean => {
-                              if (!activeStatuses.has(m.status)) return false;
-                              const num = parseNum(m.label);
-                              return num == null || !tbaPlayedNums.has(num);
-                            };
-
-                            const firstActiveIdx = matches.findIndex(isTrulyActive);
-                            const lastCompletedIdx = (() => {
-                              for (let i = matches.length - 1; i >= 0; i--) {
-                                if (isTrulyDone(matches[i])) return i;
-                              }
-                              return -1;
-                            })();
-                            const anchorIdx = firstActiveIdx >= 0
-                              ? firstActiveIdx
-                              : lastCompletedIdx >= 0
-                                ? Math.min(lastCompletedIdx + 1, matches.length - 1)
-                                : 0;
-                            const next10 = matches.slice(anchorIdx, anchorIdx + 20).filter((m: any) => !isTrulyDone(m)).slice(0, 10);
-                            if (next10.length === 0) return null;
-                            return (
-                              <div>
-                                <p className="text-[9px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-3">Upcoming Matches</p>
-                                <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700">
-                                  <table className="w-full text-sm">
-                                    <thead>
-                                      <tr className="bg-slate-50 dark:bg-slate-700 border-b border-slate-200 dark:border-slate-600">
-                                        <th className="px-3 py-2 text-left text-[9px] font-black text-slate-400 uppercase tracking-widest">Status</th>
-                                        <th className="px-3 py-2 text-left text-[9px] font-black text-slate-400 uppercase tracking-widest">Match</th>
-                                        <th className="px-3 py-2 text-left text-[9px] font-black text-slate-400 uppercase tracking-widest">Red</th>
-                                        <th className="px-3 py-2 text-left text-[9px] font-black text-slate-400 uppercase tracking-widest">Blue</th>
-                                        <th className="px-3 py-2 text-right text-[9px] font-black text-slate-400 uppercase tracking-widest">Queue / Start</th>
-                                      </tr>
-                                    </thead>
-                                    <tbody>
-                                      {next10.map((m: any, i: number) => {
-                                        const isOurs = [...(m.redTeams || []), ...(m.blueTeams || [])].includes(teamNumber);
-                                        const queueTime = m.times?.estimatedQueueTime;
-                                        const startTime = m.times?.estimatedStartTime;
-                                        return (
-                                          <tr key={i} className={`border-b last:border-b-0 transition-all ${
-                                            isOurs
-                                              ? 'border-l-4 border-l-red-500 bg-red-50 dark:bg-red-900/20 border-b-red-100 dark:border-b-red-900'
-                                              : 'border-b-slate-100 dark:border-b-slate-700 odd:bg-white dark:odd:bg-transparent even:bg-slate-50/50 dark:even:bg-slate-700/20'
-                                          }`}>
-                                            <td className="px-3 py-2">
-                                              {(() => {
-                                                const done = isTrulyDone(m);
-                                                const label = done ? 'Done' :
-                                                  m.status === 'Queuing soon' ? 'Soon' :
-                                                  m.status === 'Now queuing' ? 'Queue' :
-                                                  m.status === 'On deck' ? 'Deck' :
-                                                  m.status === 'On field' ? 'Field' : '—';
-                                                const color = done ? 'bg-slate-200 dark:bg-slate-600 text-slate-500 dark:text-slate-400' : statusColor(m.status);
-                                                return <span className={`px-2 py-0.5 rounded-md text-[9px] font-black uppercase ${color}`}>{label}</span>;
-                                              })()}
-                                            </td>
-                                            <td className={`px-3 py-2 font-black text-sm ${isOurs ? 'text-red-700 dark:text-red-300' : 'text-slate-900 dark:text-white'}`}>
-                                              {m.label}{isOurs && ' ★'}
-                                            </td>
-                                            <td className="px-3 py-2">
-                                              <div className="flex gap-1 flex-wrap">{(m.redTeams || []).map((t: number) => teamBadge(t, 'red'))}</div>
-                                            </td>
-                                            <td className="px-3 py-2">
-                                              <div className="flex gap-1 flex-wrap">{(m.blueTeams || []).map((t: number) => teamBadge(t, 'blue'))}</div>
-                                            </td>
-                                            <td className="px-3 py-2 text-right text-[10px] text-slate-400 dark:text-slate-500 font-bold whitespace-nowrap">
-                                              {queueTime && <div>Q {timeStr(queueTime)}</div>}
-                                              {startTime && <div>▶ {timeStr(startTime)}</div>}
-                                            </td>
-                                          </tr>
-                                        );
-                                      })}
-                                    </tbody>
-                                  </table>
-                                </div>
-                              </div>
-                            );
-                          })()}
-
-                          {nexusData.partsRequests?.length > 0 && (
-                            <div className="bg-red-50 dark:bg-red-900/20 border-2 border-red-200 dark:border-red-700 rounded-xl p-4">
-                              <p className="text-[9px] font-black text-red-600 uppercase tracking-widest mb-2">Parts Requests</p>
-                              <div className="space-y-2">
-                                {nexusData.partsRequests.map((r: any, i: number) => {
-                                  const desc = extractPartsRequestText(r);
-                                  return (
-                                    <div key={i} className="flex items-start gap-2">
-                                      {(r?.requestedByTeam ?? r?.teamNumber) && (
-                                        <span className="flex-shrink-0 px-2 py-0.5 bg-red-200 dark:bg-red-800 text-red-800 dark:text-red-200 rounded font-black text-[10px]">
-                                          #{r.requestedByTeam ?? r.teamNumber}
-                                        </span>
-                                      )}
-                                      <div className="min-w-0">
-                                        <p className="text-sm text-red-800 dark:text-red-200 font-medium leading-snug">{desc}</p>
-                                        {r?.quantity != null && <p className="text-[10px] text-red-500 dark:text-red-400 font-bold">Qty: {r.quantity}</p>}
-                                        {r?.notes && desc !== r.notes && <p className="text-[10px] text-red-500 dark:text-red-400 italic">{r.notes}</p>}
-                                      </div>
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            </div>
-                          )}
-                        </>
-                      );
-                    })()}
-                  </div>
-                ) : null}
-              </div>
-            ) : (
-              isCoachOrCaptain && (
-                <div className="bg-violet-50 dark:bg-violet-900/20 rounded-2xl md:rounded-[32px] border-2 border-violet-200 dark:border-violet-700 p-6 text-center">
-                  <p className="text-sm font-black text-violet-700 dark:text-violet-300 uppercase tracking-tight">No Nexus Event Key</p>
-                  <p className="text-xs text-violet-500 dark:text-violet-400 mt-1">Open Event Settings and add the event key to enable live queue data</p>
-                </div>
-              )
-            )}
-          </div>
+        <div className="grid grid-cols-1 gap-6 2xl:gap-8">
 
           <div className="space-y-4">
-            {(activeEvent?.tbaEventKey || activeEvent?.toaEventKey) && (
+            {activeEvent?.eventCode && (
               <div className="bg-white dark:bg-slate-800 rounded-2xl md:rounded-[32px] border-2 border-slate-100 dark:border-slate-700 p-6 md:p-8">
                 <div className="flex items-center justify-between mb-6">
                   <h3 className="text-lg md:text-xl font-black text-slate-900 dark:text-white uppercase tracking-tight">Event Schedule</h3>
-                  <button onClick={() => onFetchTbaData(activeEvent.toaEventKey || activeEvent.tbaEventKey)} className="px-4 py-2 bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 font-black rounded-xl text-[10px] uppercase tracking-widest hover:bg-slate-200 transition-all">
+                  <button onClick={onRefreshEventData} className="px-4 py-2 bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 font-black rounded-xl text-[10px] uppercase tracking-widest hover:bg-slate-200 transition-all">
                     Refresh
                   </button>
                 </div>
@@ -572,7 +146,7 @@ const PitDisplay: React.FC<PitDisplayProps> = ({
                   };
 
                   const renderTeamLink = (teamKey: string) => {
-                    const num = parseInt(teamKey.replace('frc', '').replace('ftc', ''));
+                    const num = parseInt(teamKey.replace('ftc', ''));
                     const hasScouted = pitScouts.some((ps: any) => ps.teamNumber === num);
                     return (
                       <span key={teamKey} onClick={(e) => { e.stopPropagation(); if (hasScouted) onOpenRobotByNumber(num); }}
@@ -675,7 +249,7 @@ const PitDisplay: React.FC<PitDisplayProps> = ({
                         <div className="py-12 text-center">
                           <Calendar size={40} className="text-slate-200 mx-auto mb-3" />
                           <p className="text-sm font-black text-slate-300 uppercase tracking-tight">No schedule available yet</p>
-                          <p className="text-xs text-slate-400 mt-1">Match schedule will appear once posted on The Blue Alliance</p>
+                          <p className="text-xs text-slate-400 mt-1">The match schedule appears once FIRST posts it</p>
                         </div>
                       )}
                     </div>
@@ -684,11 +258,11 @@ const PitDisplay: React.FC<PitDisplayProps> = ({
               </div>
             )}
 
-            {!activeEvent?.tbaEventKey && !activeEvent?.toaEventKey && (
+            {!activeEvent?.eventCode && (
               <div className="bg-yellow-50 dark:bg-yellow-900/30 rounded-2xl md:rounded-[32px] border-2 border-yellow-200 dark:border-yellow-700 p-6 md:p-8 text-center">
                 <Calendar size={32} className="text-yellow-500 mx-auto mb-3" />
-                <p className="text-sm font-black text-yellow-800 uppercase tracking-tight">No Event Key Linked</p>
-                <p className="text-xs text-yellow-600 mt-1">Edit this event and add a TBA event key (FRC) or TOA event key (FTC) to see live schedule and win/loss record</p>
+                <p className="text-sm font-black text-yellow-800 uppercase tracking-tight">No FIRST Event Code</p>
+                <p className="text-xs text-yellow-600 mt-1">Open Event Settings and add the event's FIRST code to see the live schedule and win/loss record</p>
               </div>
             )}
           </div>
@@ -701,11 +275,8 @@ const PitDisplay: React.FC<PitDisplayProps> = ({
             <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
               <h3 className="text-lg md:text-xl font-black text-slate-900 dark:text-white uppercase tracking-tight flex items-center gap-2">
                 <span>Event Rankings</span>
-                {activeEvent?.toaEventKey && (
-                  <span className="text-[9px] font-black text-orange-600 uppercase tracking-widest bg-orange-50 dark:bg-orange-900/30 px-3 py-1.5 rounded-lg">TOA Live</span>
-                )}
-                {!activeEvent?.toaEventKey && activeEvent?.tbaEventKey && (
-                  <span className="text-[9px] font-black text-blue-600 uppercase tracking-widest bg-blue-50 dark:bg-blue-900/30 px-3 py-1.5 rounded-lg">TBA Live</span>
+                {activeEvent?.eventCode && (
+                  <span className="text-[9px] font-black text-teamColor uppercase tracking-widest bg-teamColor/10 px-3 py-1.5 rounded-lg">FIRST Live</span>
                 )}
               </h3>
               {tbaRecord && (
@@ -775,6 +346,13 @@ const PitDisplay: React.FC<PitDisplayProps> = ({
 
           {pitScouts.length > 0 && (() => {
             const hasRankings = tbaRankings.size > 0;
+            const fields = (matchTemplate?.fields || []) as TemplateField[];
+            const statsByTeam = new Map(pitScouts.map((ps: any) => [
+              ps.teamNumber,
+              computeAggregates(matchScoutsData.filter((m: any) => m.teamNumber === ps.teamNumber), fields).filter(a => a.n > 0),
+            ]));
+            // Without official rankings, order by the template's Rank metric.
+            const rankValue = (team: number) => statsByTeam.get(team)?.find(a => a.rankMetric)?.value ?? -1;
             const sorted = [...pitScouts].sort((a: any, b: any) => {
               if (hasRankings) {
                 const aRank = tbaRankings.get(a.teamNumber);
@@ -783,7 +361,7 @@ const PitDisplay: React.FC<PitDisplayProps> = ({
                 if (aRank) return -1;
                 if (bRank) return 1;
               }
-              return (b.overallRating || 0) - (a.overallRating || 0);
+              return rankValue(b.teamNumber) - rankValue(a.teamNumber);
             });
             return (
               <div className="bg-white dark:bg-slate-800 rounded-2xl md:rounded-[32px] border-2 border-slate-100 dark:border-slate-700 p-6 md:p-8">
@@ -792,22 +370,13 @@ const PitDisplay: React.FC<PitDisplayProps> = ({
                     {hasRankings ? 'Event Rankings' : 'Scouted Robot Leaderboard'}
                   </h3>
                   {hasRankings && (
-                    <span className="text-[9px] font-black text-blue-600 uppercase tracking-widest bg-blue-50 dark:bg-blue-900/30 px-3 py-1.5 rounded-lg">TBA Ranking Points</span>
+                    <span className="text-[9px] font-black text-teamColor uppercase tracking-widest bg-teamColor/10 px-3 py-1.5 rounded-lg">FIRST Ranking Points</span>
                   )}
                 </div>
                 <div className="space-y-3">
                   {sorted.map((ps: any, idx: number) => {
                     const ranking = tbaRankings.get(ps.teamNumber);
-                    const teamMatches = matchScoutsData.filter((m: any) => m.teamNumber === ps.teamNumber);
-                    const avgAutoFuel = teamMatches.length > 0
-                      ? (teamMatches.reduce((s: number, m: any) => s + (m.autoFuelTotal || 0), 0) / teamMatches.length).toFixed(1)
-                      : null;
-                    const avgTeleopFuel = teamMatches.length > 0
-                      ? (teamMatches.reduce((s: number, m: any) => s + (m.teleopFuelTotal || 0), 0) / teamMatches.length).toFixed(1)
-                      : null;
-                    const avgDriving = teamMatches.filter((m: any) => m.drivingSkillRating > 0).length > 0
-                      ? (teamMatches.reduce((s: number, m: any) => s + (m.drivingSkillRating || 0), 0) / teamMatches.filter((m: any) => m.drivingSkillRating > 0).length).toFixed(1)
-                      : null;
+                    const summary = (statsByTeam.get(ps.teamNumber) || []).filter(a => a.showInSummary).slice(0, 3);
                     return (
                       <div key={ps.id} onClick={() => onSetSelectedRobot(ps)}
                         className="flex items-center gap-4 p-4 rounded-xl bg-slate-50 dark:bg-slate-700 border border-slate-100 dark:border-slate-600 cursor-pointer hover:border-teamColor/40 hover:bg-teamColor/5 transition-all">
@@ -824,29 +393,16 @@ const PitDisplay: React.FC<PitDisplayProps> = ({
                             Team {ps.teamNumber} {ps.teamName ? `— ${ps.teamName}` : ''}
                           </p>
                           <p className="text-[10px] text-slate-400 dark:text-slate-500 font-bold truncate">
-                            {ranking ? `${ranking.record} • ${ranking.rp.toFixed(2)} RP` : `${ps.robotName || 'Unnamed'} • ${ps.drivetrain || '—'}`}
+                            {ranking ? `${ranking.record} • ${ranking.rp.toFixed(2)} RP` : (ps.data?.drivetrain || ps.drivetrain || 'Not yet ranked')}
                           </p>
                         </div>
                         <div className="flex gap-2 md:gap-3 flex-shrink-0">
-                          {avgDriving !== null && (
-                            <div className="text-center">
-                              <p className="text-sm font-black text-slate-900 dark:text-white">{'★'.repeat(Math.round(parseFloat(avgDriving)))}</p>
-                              <p className="text-[8px] font-black text-slate-400 dark:text-slate-500 uppercase">Drive</p>
+                          {summary.length > 0 ? summary.map(a => (
+                            <div key={a.key} className="px-2.5 py-1.5 bg-teamColor/10 text-center rounded-lg max-w-[6rem]">
+                              <p className="text-sm font-black text-teamColor">{a.display}</p>
+                              <p className="text-[8px] font-black text-slate-400 uppercase truncate" title={a.label}>{a.label}</p>
                             </div>
-                          )}
-                          {avgAutoFuel !== null && (
-                            <div className="px-2.5 py-1.5 bg-green-50 dark:bg-green-900/30 text-center rounded-lg">
-                              <p className="text-sm font-black text-green-700">{avgAutoFuel}</p>
-                              <p className="text-[8px] font-black text-green-400 uppercase">Auto</p>
-                            </div>
-                          )}
-                          {avgTeleopFuel !== null && (
-                            <div className="px-2.5 py-1.5 bg-blue-50 dark:bg-blue-900/30 text-center rounded-lg">
-                              <p className="text-sm font-black text-blue-700">{avgTeleopFuel}</p>
-                              <p className="text-[8px] font-black text-blue-400 uppercase">Teleop</p>
-                            </div>
-                          )}
-                          {avgAutoFuel === null && avgDriving === null && (
+                          )) : (
                             <span className="px-3 py-1.5 bg-slate-100 dark:bg-slate-700 text-slate-400 dark:text-slate-500 rounded-lg text-[9px] font-black">No match data</span>
                           )}
                         </div>

@@ -1731,6 +1731,35 @@ export class DatabaseStorage implements IStorage {
   }
 
   /**
+   * FIRST event code + calendar link on scout events. Also backfills FIRST
+   * codes that were stored in toa_event_key while TOA was being replaced: TOA
+   * keys always contain dashes ("2526-USTX-..."), FIRST codes never do. Only
+   * touches rows with no event_code yet, so it is safe on every boot.
+   */
+  async ensureScoutEventFirstLink(): Promise<void> {
+    await db.execute(sql`ALTER TABLE scout_events ADD COLUMN IF NOT EXISTS event_code TEXT`);
+    await db.execute(sql`ALTER TABLE scout_events ADD COLUMN IF NOT EXISTS calendar_event_id INTEGER REFERENCES calendar_events(id) ON DELETE SET NULL`);
+    await db.execute(sql`
+      UPDATE scout_events SET event_code = UPPER(toa_event_key)
+      WHERE event_code IS NULL AND toa_event_key ~ '^[A-Za-z0-9]{3,}$'
+    `);
+  }
+
+  async getScoutEventByCode(code: string): Promise<ScoutEvent | undefined> {
+    const [row] = await db.select().from(scoutEvents)
+      .where(sql`UPPER(${scoutEvents.eventCode}) = UPPER(${code})`)
+      .limit(1);
+    return row;
+  }
+
+  async getScoutEventByCalendarEvent(calendarEventId: number): Promise<ScoutEvent | undefined> {
+    const [row] = await db.select().from(scoutEvents)
+      .where(eq(scoutEvents.calendarEventId, calendarEventId))
+      .limit(1);
+    return row;
+  }
+
+  /**
    * Per-task stretches inside a clocked session (see the table's comment in
    * shared/schema.ts). Additive and idempotent — existing sessions simply have
    * no segments until their next task pick.

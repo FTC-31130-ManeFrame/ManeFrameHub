@@ -12,15 +12,15 @@ import { Counter, StarRating, RatingSlider, TagInput } from './scout/shared';
 import RobotDashboard from './scout/RobotDashboard';
 import ScoutQR from './scout/ScoutQR';
 import PitDisplay from './scout/PitDisplay';
-import PitMap from './scout/PitMap';
 import ScoutEventList from './scout/ScoutEventList';
+import FirstEventImportModal from './FirstEventImportModal';
+import { ftcSeasonFor } from '../shared/ftcSeason';
 import SeasonManager from './scout/SeasonManager';
 import DynamicScoutForm from './scout/DynamicScoutForm';
 import { DEFAULT_TEMPLATES, isNumericField, type TemplateField, type ScoutKind } from '../shared/scoutingTemplates';
 
 // Scouting always renders from a template: the event's season template, or the
 // current game's default when the event has no season (or its season has none).
-// The old hand-built forms only ever showed one FRC game's fields.
 function effectiveTemplate(tpl: any, kind: ScoutKind): { id?: number; name: string; fields: TemplateField[] } {
   return tpl?.fields?.length ? tpl : DEFAULT_TEMPLATES[kind];
 }
@@ -53,12 +53,13 @@ const Scout: React.FC<ScoutProps> = ({ currentUser }) => {
   const { settings } = useTeamSettings();
   const { fmtTime } = useTeamTime();
   const teamNumber = settings.teamNumber;
-  const frcKey = `frc${teamNumber}`;
-  const teamKeyPrefix = settings.teamProgram === 'FTC' ? 'ftc' : 'frc';
+  // FIRST's FTC API identifies teams by number; match rows carry them as
+  // "ftc<number>" keys (see server/services/firstApi.ts).
+  const teamKeyPrefix = 'ftc';
   const myTeamKey = `${teamKeyPrefix}${teamNumber}`;
   const [events, setEvents] = useState<any[]>([]);
   const [activeEvent, setActiveEvent] = useState<any | null>(null);
-  const [activeTab, setActiveTab] = useState<'robots' | 'matches' | 'info' | 'schedule' | 'qr' | 'display' | 'map'>('robots');
+  const [activeTab, setActiveTab] = useState<'robots' | 'matches' | 'info' | 'schedule' | 'qr' | 'display'>('robots');
   const [pitScouts, setPitScouts] = useState<any[]>([]);
   const [matchScoutsData, setMatchScoutsData] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
@@ -78,7 +79,8 @@ const Scout: React.FC<ScoutProps> = ({ currentUser }) => {
   const matchTemplate = effectiveTemplate(activeMatchTemplate, 'match');
   const [eventSeasonFilter, setEventSeasonFilter] = useState<number | 'all'>('all');
 
-  const [eventForm, setEventForm] = useState<any>({ name: '', location: '', startDate: '', endDate: '', tbaEventKey: '', nexusEventKey: '', toaEventKey: '', seasonId: undefined });
+  const [eventForm, setEventForm] = useState<any>({ name: '', location: '', startDate: '', endDate: '', eventCode: '', seasonId: undefined });
+  const [showImportModal, setShowImportModal] = useState(false);
   const [tbaMatches, setTbaMatches] = useState<any[]>([]);
   const [tbaRecord, setTbaRecord] = useState<{ wins: number; losses: number; ties: number } | null>(null);
   const [tbaLoading, setTbaLoading] = useState(false);
@@ -104,9 +106,8 @@ const Scout: React.FC<ScoutProps> = ({ currentUser }) => {
   const [matchViewMode, setMatchViewMode] = useState<'list' | 'roster'>('list');
   const [matchRefreshing, setMatchRefreshing] = useState(false);
 
-  const [tbaYearEvents, setTbaYearEvents] = useState<any[]>([]);
-  const [tbaYearStatuses, setTbaYearStatuses] = useState<Record<string, any>>({});
-  const [tbaYearLoading, setTbaYearLoading] = useState(false);
+  const [teamSeasonEvents, setTeamSeasonEvents] = useState<any[]>([]);
+  const [teamSeasonLoading, setTeamSeasonLoading] = useState(false);
   const [crossEventMatches, setCrossEventMatches] = useState<any[]>([]);
 
   const [qrData, setQrData] = useState<string[]>([]);
@@ -121,29 +122,10 @@ const Scout: React.FC<ScoutProps> = ({ currentUser }) => {
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
 
-  const [nexusData, setNexusData] = useState<any | null>(null);
-  const [nexusLoading, setNexusLoading] = useState(false);
-  const [nexusError, setNexusError] = useState<string | null>(null);
-
-  const [pitMapData, setPitMapData] = useState<any | null>(null);
-  const [pitMapLoading, setPitMapLoading] = useState(false);
-  const [pitMapError, setPitMapError] = useState<string | null>(null);
-  const [nexusCountdown, setNexusCountdown] = useState<string>('');
-  const nexusPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const nexusCountdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const nexusEndedKeys = useRef<Set<string>>(new Set());
-
   const [showEventSettings, setShowEventSettings] = useState(false);
-  const [eventSettingsForm, setEventSettingsForm] = useState({ tbaEventKey: '', nexusEventKey: '', toaEventKey: '', nexusPitMapKey: '' });
+  const [eventSettingsForm, setEventSettingsForm] = useState({ eventCode: '' });
   const [eventSettingsSaveError, setEventSettingsSaveError] = useState<string | null>(null);
-  const [nexusTestStatus, setNexusTestStatus] = useState<'idle' | 'testing' | 'ok' | 'error'>('idle');
-  const [nexusTestMsg, setNexusTestMsg] = useState('');
-  const [nexusToast, setNexusToast] = useState<{ type: 'ok' | 'error'; msg: string } | null>(null);
-  const nexusToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const [dismissedBreaks, setDismissedBreaks] = useState<Set<string>>(new Set());
-  const [dismissedAnnouncements, setDismissedAnnouncements] = useState<Set<string>>(new Set());
-  const [dismissedParts, setDismissedParts] = useState<Set<string>>(new Set());
 
   const [pitDisplayAlerts, setPitDisplayAlerts] = useState<any[]>([]);
   const [dismissedPitAlertIds, setDismissedPitAlertIds] = useState<Set<number>>(() => {
@@ -212,147 +194,6 @@ const Scout: React.FC<ScoutProps> = ({ currentUser }) => {
       console.error('Failed to fetch match exceptions:', err);
     }
   }, []);
-
-  const fetchNexusData = useCallback(async (eventKey: string): Promise<'active' | 'inactive' | 'error'> => {
-    if (!eventKey) return 'inactive';
-    setNexusLoading(true);
-    setNexusError(null);
-    try {
-      const data = await api.nexus.getEvent(eventKey);
-      setNexusData(data);
-      return 'active';
-    } catch (err: any) {
-      const status: number = err?.status ?? err?.statusCode ?? 0;
-      if (status === 404 || status === 503) {
-        setNexusData(null);
-        setNexusError('EVENT_ENDED');
-        return 'inactive';
-      }
-      setNexusError(err?.message || 'Failed to load Nexus data');
-      setNexusData(null);
-      return 'error';
-    } finally {
-      setNexusLoading(false);
-    }
-  }, []);
-
-  const fetchPitMap = useCallback(async (eventKey: string) => {
-    if (!eventKey) return;
-    setPitMapLoading(true);
-    setPitMapError(null);
-    try {
-      const data = await api.nexus.getPitMap(eventKey);
-      setPitMapData(data);
-    } catch (err: any) {
-      const status: number = err?.status ?? 0;
-      if (status === 404) {
-        setPitMapData(null);
-        setPitMapError('NO_MAP');
-      } else if (status === 503) {
-        setPitMapData(null);
-        setPitMapError('NOT_CONFIGURED');
-      } else {
-        setPitMapError(err?.message || 'Failed to load pit map');
-        setPitMapData(null);
-      }
-    } finally {
-      setPitMapLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (activeTab !== 'map') return;
-    const key = activeEvent?.nexusPitMapKey || activeEvent?.nexusEventKey;
-    if (!key) return;
-    if (!pitMapData && !pitMapLoading && !pitMapError) {
-      fetchPitMap(key);
-    }
-  }, [activeTab, activeEvent, pitMapData, pitMapLoading, pitMapError, fetchPitMap]);
-
-  useEffect(() => {
-    setPitMapData(null);
-    setPitMapError(null);
-  }, [activeEvent?.id]);
-
-  const activeEventIdRef = useRef<number | undefined>(undefined);
-  useEffect(() => {
-    if (nexusPollRef.current) clearInterval(nexusPollRef.current);
-    if (nexusCountdownRef.current) clearInterval(nexusCountdownRef.current);
-    setNexusData(null);
-    setNexusError(null);
-    setNexusCountdown('');
-    setDismissedBreaks(new Set());
-    setDismissedAnnouncements(new Set());
-    setDismissedParts(new Set());
-
-    const key = activeEvent?.nexusEventKey;
-    if (!key || activeTab !== 'display') return;
-
-    // Clear ended-key cache when the event itself changes
-    if (activeEvent?.id !== activeEventIdRef.current) {
-      nexusEndedKeys.current.clear();
-      activeEventIdRef.current = activeEvent?.id;
-    }
-
-    // Skip the fetch entirely if we already know this event has ended
-    if (nexusEndedKeys.current.has(key)) {
-      setNexusError('EVENT_ENDED');
-      return;
-    }
-
-    let cancelled = false;
-    fetchNexusData(key).then(result => {
-      if (cancelled) return;
-      if (result === 'inactive') {
-        nexusEndedKeys.current.add(key);
-        return;
-      }
-      nexusPollRef.current = setInterval(() => {
-        fetchNexusData(key).then(tick => {
-          if (tick === 'inactive' && nexusPollRef.current) {
-            nexusEndedKeys.current.add(key);
-            clearInterval(nexusPollRef.current);
-            nexusPollRef.current = null;
-          }
-        });
-      }, 30000);
-    });
-
-    return () => {
-      cancelled = true;
-      if (nexusPollRef.current) clearInterval(nexusPollRef.current);
-    };
-  }, [activeEvent, activeTab, fetchNexusData]);
-
-  useEffect(() => {
-    if (nexusCountdownRef.current) clearInterval(nexusCountdownRef.current);
-    if (!nexusData?.matches) return;
-
-    const isOurMatch = (m: any) =>
-      (m.redTeams || []).includes(teamNumber) || (m.blueTeams || []).includes(teamNumber);
-
-    const getNextQueueTime = () => {
-      const ourActive = nexusData.matches.find(
-        (m: any) => isOurMatch(m) && m.times?.estimatedQueueTime && (
-          m.status === 'Queuing soon' || m.status === 'Now queuing' || m.status === 'On deck' || m.status === 'On field'
-        )
-      );
-      return ourActive?.times?.estimatedQueueTime ?? null;
-    };
-
-    const tick = () => {
-      const t = getNextQueueTime();
-      if (!t) { setNexusCountdown(''); return; }
-      const diff = Math.max(0, Math.floor((new Date(t).getTime() - Date.now()) / 1000));
-      if (diff === 0) { setNexusCountdown('Queue now!'); return; }
-      const m = Math.floor(diff / 60);
-      const s = diff % 60;
-      setNexusCountdown(`${m}:${s.toString().padStart(2, '0')}`);
-    };
-    tick();
-    nexusCountdownRef.current = setInterval(tick, 1000);
-    return () => { if (nexusCountdownRef.current) clearInterval(nexusCountdownRef.current); };
-  }, [nexusData]);
 
   useEffect(() => {
     if (activeTab !== 'display') return;
@@ -491,67 +332,18 @@ const Scout: React.FC<ScoutProps> = ({ currentUser }) => {
     setLoading(false);
   }, []);
 
-  const fetchTbaData = useCallback(async (tbaEventKey: string) => {
-    if (!tbaEventKey) return;
-    setTbaLoading(true);
-    const currentFrcKey = `frc${teamNumber}`;
-    try {
-      const [allMatches, teamMatches, rankingsData] = await Promise.all([
-        api.tba.getEventMatches(tbaEventKey),
-        api.tba.getTeamMatches(currentFrcKey, tbaEventKey),
-        api.tba.getEventRankings(tbaEventKey).catch(() => null),
-      ]);
-      setTbaMatches(allMatches || []);
-      if (rankingsData?.rankings) {
-        const map = new Map<number, { rank: number; rp: number; record: string }>();
-        for (const r of rankingsData.rankings) {
-          const teamNum = parseInt(r.team_key?.replace(/^(frc|ftc)/,'') || '0');
-          if (teamNum) {
-            map.set(teamNum, {
-              rank: r.rank,
-              rp: r.sort_orders?.[0] || 0,
-              record: `${r.record?.wins || 0}-${r.record?.losses || 0}-${r.record?.ties || 0}`,
-            });
-          }
-        }
-        setTbaRankings(map);
-      }
-      if (teamMatches && teamMatches.length > 0) {
-        let wins = 0, losses = 0, ties = 0;
-        for (const m of teamMatches) {
-          if (m.winning_alliance === undefined || m.winning_alliance === null) continue;
-          if (m.alliances?.red?.score === -1 && m.alliances?.blue?.score === -1) continue;
-          const isRed = m.alliances?.red?.team_keys?.includes(currentFrcKey);
-          const isBlue = m.alliances?.blue?.team_keys?.includes(currentFrcKey);
-          const ourAlliance = isRed ? 'red' : isBlue ? 'blue' : null;
-          if (!ourAlliance) continue;
-          if (m.winning_alliance === '') { ties++; }
-          else if (m.winning_alliance === ourAlliance) { wins++; }
-          else { losses++; }
-        }
-        setTbaRecord({ wins, losses, ties });
-      } else {
-        setTbaRecord(null);
-      }
-    } catch (err) {
-      console.error('Failed to fetch TBA data:', err);
-      setTbaMatches([]);
-      setTbaRecord(null);
-    }
-    setTbaLoading(false);
-  }, [teamNumber]);
-
-  // FTC event data comes from FIRST's official API. The stored field is still
-  // named toaEventKey (renaming it would need a migration) but now holds a
-  // FIRST eventCode. Unlike the TBA path above, the server returns these
-  // already normalized, so there is no reshaping to do here.
-  const fetchFirstData = useCallback(async (eventCode: string) => {
+  // Schedule, results and rankings come from FIRST's FTC Events API, already
+  // normalized by the server. The season comes from the event's own date so a
+  // past event keeps loading after the season rolls over.
+  const fetchFirstData = useCallback(async (event: any) => {
+    const eventCode = event?.eventCode;
     if (!eventCode) return;
+    const season = ftcSeasonFor(event.startDate);
     setTbaLoading(true);
     try {
       const [allMatches, rankingsData] = await Promise.all([
-        api.first.getEventMatches(eventCode),
-        api.first.getEventRankings(eventCode).catch(() => []),
+        api.first.getEventMatches(eventCode, season),
+        api.first.getEventRankings(eventCode, season).catch(() => []),
       ]);
       const normalizedMatches = allMatches || [];
       setTbaMatches(normalizedMatches);
@@ -594,114 +386,21 @@ const Scout: React.FC<ScoutProps> = ({ currentUser }) => {
     setTbaLoading(false);
   }, [teamNumber]);
 
-  const importTeamsFromToa = async () => {
-    if (!activeEvent?.toaEventKey) return;
+  // Re-runs the FIRST import for this event: adds any teams FIRST has
+  // published since, and links the calendar event if it isn't yet.
+  const refreshTeamsFromFirst = async () => {
+    if (!activeEvent?.eventCode) return;
     setTbaImporting(true);
     try {
-      const teams = await api.first.getEventTeams(activeEvent.toaEventKey);
-      if (!teams || teams.length === 0) {
-        alert('No teams found for this event in the FIRST Events API.');
-        setTbaImporting(false);
-        return;
-      }
-      const existingNumbers = new Set(pitScouts.map((ps: any) => ps.teamNumber));
-      const newTeams = teams.filter((t: any) => !existingNumbers.has(t.team_number));
-      if (newTeams.length === 0) {
-        alert(`All ${teams.length} teams from this event are already in your scouting list.`);
-        setTbaImporting(false);
-        return;
-      }
-      let imported = 0;
-      for (const team of newTeams) {
-        try {
-          await api.scout.createPitScout(activeEvent.id, {
-            teamNumber: team.team_number,
-            teamName: team.team_name_short || team.team_name || `FTC Team ${team.team_number}`,
-            robotName: '',
-            drivetrain: '',
-            weight: 0,
-            speed: 0,
-            height: 0,
-            capabilities: [],
-            deficiencies: [],
-            autonomousRoutine: 'None',
-            notes: team.city && team.state_prov ? `From ${team.city}, ${team.state_prov}` : '',
-            offenseRating: 5,
-            defenseRating: 5,
-            overallRating: 5,
-            scoutedBy: parseInt(currentUser.id),
-          });
-          imported++;
-        } catch (err) {
-          console.error(`Failed to import FTC team ${team.team_number}:`, err);
-        }
-      }
-      const failed = newTeams.length - imported;
-      let msg = `Imported ${imported} new FTC teams!`;
-      if (existingNumbers.size > 0) msg += ` (${existingNumbers.size} already existed)`;
-      if (failed > 0) msg += ` (${failed} failed to import)`;
-      msg += ' You can now edit their robot details.';
-      alert(msg);
+      const r = await api.first.importEvent(activeEvent.eventCode, ftcSeasonFor(activeEvent.startDate));
+      alert(r.teamsTotal === 0
+        ? "FIRST hasn't published the team list for this event yet. Try again closer to the event."
+        : r.teamsAdded === 0
+          ? `All ${r.teamsTotal} teams are already in this event.`
+          : `Added ${r.teamsAdded} team${r.teamsAdded === 1 ? '' : 's'} (${r.teamsTotal} registered).`);
       fetchEventData(activeEvent.id);
-    } catch (err) {
-      console.error('TOA team import failed:', err);
-      alert('Failed to import teams from The Orange Alliance. Check the event key and try again.');
-    }
-    setTbaImporting(false);
-  };
-
-  const importTeamsFromTba = async () => {
-    if (!activeEvent?.tbaEventKey) return;
-    setTbaImporting(true);
-    try {
-      const teams = await api.tba.getEventTeams(activeEvent.tbaEventKey);
-      if (!teams || teams.length === 0) {
-        alert('No teams found for this event on The Blue Alliance.');
-        setTbaImporting(false);
-        return;
-      }
-      const existingNumbers = new Set(pitScouts.map((ps: any) => ps.teamNumber));
-      const newTeams = teams.filter((t: any) => !existingNumbers.has(t.team_number));
-      if (newTeams.length === 0) {
-        alert(`All ${teams.length} teams from this event are already in your scouting list.`);
-        setTbaImporting(false);
-        return;
-      }
-      let imported = 0;
-      for (const team of newTeams) {
-        try {
-          await api.scout.createPitScout(activeEvent.id, {
-            teamNumber: team.team_number,
-            teamName: team.nickname || team.name || `Team ${team.team_number}`,
-            robotName: '',
-            drivetrain: '',
-            weight: 0,
-            speed: 0,
-            height: 0,
-            capabilities: [],
-            deficiencies: [],
-            autonomousRoutine: 'None',
-            notes: team.city && team.state_prov ? `From ${team.city}, ${team.state_prov}` : '',
-            offenseRating: 5,
-            defenseRating: 5,
-            overallRating: 5,
-            scoutedBy: parseInt(currentUser.id),
-          });
-          imported++;
-        } catch (err) {
-          console.error(`Failed to import team ${team.team_number}:`, err);
-        }
-      }
-      const failed = newTeams.length - imported;
-      let msg = `Imported ${imported} new teams!`;
-      if (existingNumbers.size > 0) msg += ` (${existingNumbers.size} already existed)`;
-      if (failed > 0) msg += ` (${failed} failed to import)`;
-      msg += ' You can now edit their robot details.';
-      alert(msg);
-      fetchEventData(activeEvent.id);
-    } catch (err) {
-      console.error('TBA team import failed:', err);
-      alert('Failed to import teams from The Blue Alliance. Check the event key and try again.');
+    } catch (err: any) {
+      alert(err?.message || 'Could not refresh teams from FIRST.');
     }
     setTbaImporting(false);
   };
@@ -730,11 +429,7 @@ const Scout: React.FC<ScoutProps> = ({ currentUser }) => {
     fetchEventInfoData(event.id);
     fetchAssignments(event.id);
     fetchMatchExceptions(event.id);
-    if (event.toaEventKey) {
-      fetchFirstData(event.toaEventKey);
-    } else if (event.tbaEventKey) {
-      fetchTbaData(event.tbaEventKey);
-    }
+    if (event.eventCode) fetchFirstData(event);
   };
 
   useEffect(() => {
@@ -755,7 +450,7 @@ const Scout: React.FC<ScoutProps> = ({ currentUser }) => {
         createdBy: parseInt(currentUser.id),
       });
       setShowEventForm(false);
-      setEventForm({ name: '', location: '', startDate: '', endDate: '', tbaEventKey: '', nexusEventKey: '', toaEventKey: '' });
+      setEventForm({ name: '', location: '', startDate: '', endDate: '', eventCode: '' });
       fetchEvents();
     } catch (err) {
       console.error('Failed to create event:', err);
@@ -763,17 +458,7 @@ const Scout: React.FC<ScoutProps> = ({ currentUser }) => {
   };
 
   const openEventSettings = () => {
-    const tba = activeEvent?.tbaEventKey || '';
-    const nexus = activeEvent?.nexusEventKey || '';
-    const toa = activeEvent?.toaEventKey || '';
-    setEventSettingsForm({
-      tbaEventKey: tba,
-      nexusEventKey: nexus,
-      toaEventKey: toa,
-      nexusPitMapKey: activeEvent?.nexusPitMapKey || '',
-    });
-    setNexusTestStatus('idle');
-    setNexusTestMsg('');
+    setEventSettingsForm({ eventCode: activeEvent?.eventCode || '' });
     setEventSettingsSaveError(null);
     setShowEventSettings(true);
   };
@@ -782,50 +467,16 @@ const Scout: React.FC<ScoutProps> = ({ currentUser }) => {
     if (!activeEvent) return;
     setEventSettingsSaveError(null);
     try {
-      await api.scout.updateEvent(activeEvent.id, eventSettingsForm);
+      const eventCode = eventSettingsForm.eventCode.trim().toUpperCase() || null;
+      await api.scout.updateEvent(activeEvent.id, { eventCode });
       const freshEvents = await fetchEvents();
-      const freshEvent = freshEvents.find((e: any) => e.id === activeEvent.id);
-      const merged = freshEvent || { ...activeEvent, ...eventSettingsForm };
+      const merged = freshEvents.find((e: any) => e.id === activeEvent.id) || { ...activeEvent, eventCode };
       setActiveEvent(merged);
       setShowEventSettings(false);
-      if (merged.toaEventKey) {
-        fetchFirstData(merged.toaEventKey);
-      } else if (merged.tbaEventKey) {
-        fetchTbaData(merged.tbaEventKey);
-      }
-      if (merged.nexusEventKey) fetchNexusData(merged.nexusEventKey);
+      if (merged.eventCode) fetchFirstData(merged);
     } catch (err: any) {
       console.error('Failed to update event settings:', err);
       setEventSettingsSaveError(err?.message || 'Failed to save settings. Please try again.');
-    }
-  };
-
-  const showNexusToast = (type: 'ok' | 'error', msg: string) => {
-    if (nexusToastTimerRef.current) clearTimeout(nexusToastTimerRef.current);
-    setNexusToast({ type, msg });
-    nexusToastTimerRef.current = setTimeout(() => setNexusToast(null), 4000);
-  };
-
-  const handleTestNexus = async () => {
-    const key = eventSettingsForm.nexusEventKey.trim();
-    if (!key) {
-      setNexusTestStatus('error');
-      setNexusTestMsg('Enter a Nexus event key first');
-      showNexusToast('error', 'Enter a Nexus event key first');
-      return;
-    }
-    setNexusTestStatus('testing');
-    setNexusTestMsg('');
-    try {
-      await api.nexus.getEvent(key);
-      setNexusTestStatus('ok');
-      setNexusTestMsg('Connected successfully!');
-      showNexusToast('ok', `Nexus connected for event "${key}"`);
-    } catch (err: any) {
-      const msg = err?.message || 'Connection failed';
-      setNexusTestStatus('error');
-      setNexusTestMsg(msg);
-      showNexusToast('error', `Nexus error: ${msg}`);
     }
   };
 
@@ -1005,11 +656,10 @@ const Scout: React.FC<ScoutProps> = ({ currentUser }) => {
       fetchEventData(activeEvent.id),
       fetchTeamClaims(),
     ];
-    if (activeEvent.toaEventKey) tasks.push(fetchFirstData(activeEvent.toaEventKey));
-    else if (activeEvent.tbaEventKey) tasks.push(fetchTbaData(activeEvent.tbaEventKey));
+    if (activeEvent.eventCode) tasks.push(fetchFirstData(activeEvent));
     await Promise.allSettled(tasks);
     setMatchRefreshing(false);
-  }, [activeEvent, fetchEventData, fetchTbaData, fetchFirstData]);
+  }, [activeEvent, fetchEventData, fetchFirstData]);
 
   const claimTeam = async (matchKey: string, teamNumber: number) => {
     if (isGuest || !activeEvent || !currentUser) return;
@@ -1043,7 +693,7 @@ const Scout: React.FC<ScoutProps> = ({ currentUser }) => {
     };
     const label = getLabel(tbaMatch);
     const allTeamKeys = [...(tbaMatch.alliances?.red?.team_keys || []), ...(tbaMatch.alliances?.blue?.team_keys || [])];
-    let report = `# FRC Match Analysis Request: ${label}\nEvent: ${activeEvent?.name}\n\n`;
+    let report = `# FTC Match Analysis Request: ${label}\nEvent: ${activeEvent?.name}\n\n`;
     report += `**Red Alliance:** ${(tbaMatch.alliances?.red?.team_keys || []).map((k: string) => k.replace(/^(frc|ftc)/,'')).join(', ')}\n`;
     report += `**Blue Alliance:** ${(tbaMatch.alliances?.blue?.team_keys || []).map((k: string) => k.replace(/^(frc|ftc)/,'')).join(', ')}\n\n`;
     report += `## Scouted Team Data\n\n`;
@@ -1070,7 +720,7 @@ const Scout: React.FC<ScoutProps> = ({ currentUser }) => {
         }
       } else { report += `No match data.\n`; }
       const r = tbaRankings.get(teamNum);
-      if (r) report += `TBA Rank: #${r.rank} | Record: ${r.record} | RP: ${r.rp.toFixed(2)}\n`;
+      if (r) report += `Event Rank: #${r.rank} | Record: ${r.record} | RP: ${r.rp.toFixed(2)}\n`;
       report += '\n';
     }
     report += `---\nPlease analyze this match data and provide strategic recommendations for match strategy and alliance performance.`;
@@ -1125,16 +775,10 @@ const Scout: React.FC<ScoutProps> = ({ currentUser }) => {
       report += formatMatchBlock(matches, eventName);
     }
 
-    if (tbaYearEvents.length > 0) {
-      report += `## TBA Season Events (${new Date().getFullYear()})\n`;
-      for (const evt of tbaYearEvents.filter((e: any) => e.event_type_string !== 'Offseason').sort((a: any, b: any) => (a.start_date || '').localeCompare(b.start_date || ''))) {
-        const status = tbaYearStatuses[`frc${r.teamNumber}`] || tbaYearStatuses[evt.key];
-        const rank = status?.qual?.ranking?.rank;
-        const record = status?.qual?.ranking?.record;
-        report += `  ${evt.name} (${evt.start_date || '?'})`;
-        if (rank) report += ` — Rank #${rank}`;
-        if (record) report += `, ${record.wins}-${record.losses}-${record.ties}`;
-        report += '\n';
+    if (teamSeasonEvents.length > 0) {
+      report += `## Events This Season (FIRST)\n`;
+      for (const evt of [...teamSeasonEvents].sort((a: any, b: any) => String(a.startDate || '').localeCompare(String(b.startDate || '')))) {
+        report += `  ${evt.name} (${evt.startDate || '?'})\n`;
       }
       report += '\n';
     }
@@ -1532,20 +1176,18 @@ const Scout: React.FC<ScoutProps> = ({ currentUser }) => {
     return m;
   }, [pitScouts]);
 
+  // A robot's other events this season (FIRST) plus our scouting of it at
+  // every event, for the robot page.
   useEffect(() => {
-    if (!selectedRobot) { setTbaYearEvents([]); setTbaYearStatuses({}); setCrossEventMatches([]); return; }
-    const year = new Date().getFullYear();
-    const teamKey = `frc${selectedRobot.teamNumber}`;
-    setTbaYearLoading(true);
+    if (!selectedRobot) { setTeamSeasonEvents([]); setCrossEventMatches([]); return; }
+    setTeamSeasonLoading(true);
     Promise.all([
-      api.tba.getTeamYearEvents(teamKey, year).catch(() => []),
-      api.tba.getTeamYearStatuses(teamKey, year).catch(() => ({})),
+      api.first.getTeamEvents(selectedRobot.teamNumber, ftcSeasonFor(activeEvent?.startDate)).catch(() => []),
       api.scout.getTeamAllMatches(selectedRobot.teamNumber).catch(() => []),
-    ]).then(([evts, statuses, allMatches]) => {
-      setTbaYearEvents(evts || []);
-      setTbaYearStatuses(statuses || {});
+    ]).then(([evts, allMatches]) => {
+      setTeamSeasonEvents(evts || []);
       setCrossEventMatches(allMatches || []);
-      setTbaYearLoading(false);
+      setTeamSeasonLoading(false);
     });
   }, [selectedRobot]);
 
@@ -1557,12 +1199,9 @@ const Scout: React.FC<ScoutProps> = ({ currentUser }) => {
         robotMatches={robotMatches}
         matchTemplate={matchTemplate}
         pitTemplate={pitTemplate}
-        isCustomMatch
-        isCustomPit
         crossEventMatches={crossEventMatches}
-        tbaYearEvents={tbaYearEvents}
-        tbaYearStatuses={tbaYearStatuses}
-        tbaYearLoading={tbaYearLoading}
+        seasonEvents={teamSeasonEvents}
+        seasonEventsLoading={teamSeasonLoading}
         geminiModal={geminiModal}
         copiedGemini={copiedGemini}
         onBack={() => setSelectedRobot(null)}
@@ -1652,7 +1291,7 @@ const Scout: React.FC<ScoutProps> = ({ currentUser }) => {
 
         <div className="overflow-x-auto -mx-2 px-2">
           <div className="flex bg-slate-100 dark:bg-slate-700 p-1 rounded-xl border border-slate-200 shadow-inner min-w-max">
-            {(['robots', 'matches', 'info', 'schedule', 'qr', 'display', 'map'] as const).filter(tab => {
+            {(['robots', 'matches', 'info', 'schedule', 'qr', 'display'] as const).filter(tab => {
               if (tab === 'schedule' && !isCoachOrCaptain) return false;
               if (tab === 'info' && isGuest) return false;
               return true;
@@ -1664,7 +1303,7 @@ const Scout: React.FC<ScoutProps> = ({ currentUser }) => {
                   activeTab === tab ? 'bg-white dark:bg-slate-800 text-slate-900 shadow-sm dark:text-white' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'
                 }`}
               >
-                {tab === 'robots' ? 'Robots' : tab === 'matches' ? 'Matches' : tab === 'info' ? 'Info' : tab === 'schedule' ? 'Schedule' : tab === 'qr' ? 'QR' : tab === 'display' ? 'Pit Display' : 'Map'}
+                {tab === 'robots' ? 'Robots' : tab === 'matches' ? 'Matches' : tab === 'info' ? 'Info' : tab === 'schedule' ? 'Schedule' : tab === 'qr' ? 'QR' : 'Pit Display'}
               </button>
             ))}
           </div>
@@ -1691,22 +1330,14 @@ const Scout: React.FC<ScoutProps> = ({ currentUser }) => {
               >
                 <ArrowUpDown size={14} /> {robotSort === 'number' ? '#' : 'A-Z'}
               </button>
-              {!isGuest && activeEvent?.toaEventKey && (
+              {!isGuest && activeEvent?.eventCode && (
                 <button
-                  onClick={importTeamsFromToa}
+                  onClick={refreshTeamsFromFirst}
                   disabled={tbaImporting}
-                  className="flex items-center justify-center gap-2 px-6 py-3 bg-orange-500 text-white font-black rounded-xl hover:bg-orange-600 shadow-lg shadow-orange-500/20 transition-all uppercase text-[10px] tracking-widest disabled:opacity-50 disabled:cursor-not-allowed"
+                  title="Add any teams FIRST has registered for this event since it was imported"
+                  className="flex items-center justify-center gap-2 px-6 py-3 bg-slate-900 dark:bg-slate-700 text-white font-black rounded-xl hover:opacity-90 shadow-lg transition-all uppercase text-[10px] tracking-widest disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  <Download size={16} /> {tbaImporting ? 'Importing...' : 'Import from TOA'}
-                </button>
-              )}
-              {!isGuest && !activeEvent?.toaEventKey && activeEvent?.tbaEventKey && (
-                <button
-                  onClick={importTeamsFromTba}
-                  disabled={tbaImporting}
-                  className="flex items-center justify-center gap-2 px-6 py-3 bg-blue-600 text-white font-black rounded-xl hover:bg-blue-700 shadow-lg shadow-blue-600/20 transition-all uppercase text-[10px] tracking-widest disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <Download size={16} /> {tbaImporting ? 'Importing...' : 'Import from TBA'}
+                  <RefreshCw size={16} className={tbaImporting ? 'animate-spin' : ''} /> {tbaImporting ? 'Refreshing...' : 'Refresh Teams'}
                 </button>
               )}
               {!isGuest && (
@@ -1847,37 +1478,35 @@ const Scout: React.FC<ScoutProps> = ({ currentUser }) => {
               )}
             </div>
 
-            {(activeEvent?.tbaEventKey || activeEvent?.toaEventKey) && tbaLoading && (
+            {activeEvent?.eventCode && tbaLoading && (
               <div className="bg-white dark:bg-slate-800 rounded-2xl border-2 border-slate-100 dark:border-slate-700 p-8 text-center">
                 <div className="w-6 h-6 border-2 border-teamColor border-t-transparent rounded-full animate-spin mx-auto mb-3" />
                 <p className="text-sm font-black text-slate-400 uppercase tracking-widest">Loading match schedule…</p>
               </div>
             )}
 
-            {(activeEvent?.tbaEventKey || activeEvent?.toaEventKey) && !tbaLoading && tbaMatches.length === 0 && (
+            {activeEvent?.eventCode && !tbaLoading && tbaMatches.length === 0 && (
               <div className="bg-white dark:bg-slate-800 rounded-2xl border-2 border-slate-100 dark:border-slate-700 p-8 text-center space-y-3">
                 <p className="text-sm font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest">No schedule loaded yet</p>
                 <p className="text-xs text-slate-400 dark:text-slate-500 font-medium">
-                  {activeEvent?.toaEventKey
-                    ? 'The match schedule will appear once posted on The Orange Alliance. Try refreshing.'
-                    : 'The match schedule will appear once posted on The Blue Alliance. Try refreshing.'}
+                  The match schedule appears once FIRST posts it, usually the evening before qualifications. Try refreshing.
                 </p>
                 <button onClick={handleMatchRefresh} disabled={matchRefreshing}
                   className="mx-auto flex items-center gap-2 px-5 py-2.5 bg-teamColor text-white font-black rounded-xl text-[10px] uppercase tracking-widest hover:opacity-90 transition-all disabled:opacity-50">
                   <RefreshCw size={13} className={matchRefreshing ? 'animate-spin' : ''} />
-                  {matchRefreshing ? 'Refreshing…' : activeEvent?.toaEventKey ? 'Refresh from TOA' : 'Refresh from TBA'}
+                  {matchRefreshing ? 'Refreshing…' : 'Refresh from FIRST'}
                 </button>
               </div>
             )}
 
-            {!activeEvent?.tbaEventKey && !activeEvent?.toaEventKey && isCoachOrCaptain && (
+            {!activeEvent?.eventCode && isCoachOrCaptain && (
               <div className="bg-slate-50 dark:bg-slate-800/50 rounded-2xl border-2 border-dashed border-slate-200 dark:border-slate-700 p-8 text-center">
-                <p className="text-sm font-black text-slate-400 uppercase tracking-widest">No event key set</p>
-                <p className="text-xs text-slate-400 dark:text-slate-500 font-medium mt-1">Open Event Settings and add a TBA event key to load the match schedule.</p>
+                <p className="text-sm font-black text-slate-400 uppercase tracking-widest">No FIRST event code</p>
+                <p className="text-xs text-slate-400 dark:text-slate-500 font-medium mt-1">Open Event Settings and add the event's FIRST code to load the match schedule.</p>
               </div>
             )}
 
-            {(activeEvent?.tbaEventKey || activeEvent?.toaEventKey) && tbaMatches.length > 0 && (() => {
+            {activeEvent?.eventCode && tbaMatches.length > 0 && (() => {
               const now = Math.floor(Date.now() / 1000);
               const isUnplayed = (m: any) => {
                 const score = m.alliances?.red?.score;
@@ -2070,11 +1699,11 @@ const Scout: React.FC<ScoutProps> = ({ currentUser }) => {
                               <div key={n} className="flex items-center gap-1.5 px-3 py-1.5 bg-white dark:bg-slate-800 border border-rose-200 dark:border-rose-700 rounded-xl">
                                 <span className="text-[10px] font-black text-rose-700">#{n}</span>
                                 <a
-                                  href={`https://www.thebluealliance.com/team/${n}`}
+                                  href={`https://ftc-events.firstinspires.org/${ftcSeasonFor(activeEvent?.startDate)}/team/${n}`}
                                   target="_blank"
                                   rel="noopener noreferrer"
                                   className="text-[8px] font-black text-blue-500 hover:text-blue-700 uppercase tracking-wide"
-                                >TBA</a>
+                                >FIRST</a>
                                 {!isGuest && (
                                   <button
                                     onClick={() => { resetPitForm(); setEditingPit(null); setPitForm((f: any) => ({ ...f, teamNumber: n })); setShowPitForm(true); }}
@@ -2093,7 +1722,7 @@ const Scout: React.FC<ScoutProps> = ({ currentUser }) => {
                             <AlertCircle size={14} className="text-amber-600 dark:text-amber-400" />
                             Unscouted Matches ({unscoutedMatches.length})
                           </h4>
-                          <p className="text-[10px] text-amber-700 dark:text-amber-300 font-medium mb-3">Every match listed has at least one team with no match scout entry. TBA links open the match page where video replays are available.</p>
+                          <p className="text-[10px] text-amber-700 dark:text-amber-300 font-medium mb-3">Every match listed has at least one team with no match scout entry.</p>
                           <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
                             {unscoutedMatches.map((m: any) => {
                               const allTeamNums = [...(m.alliances?.red?.team_keys || []), ...(m.alliances?.blue?.team_keys || [])].map((k: string) => parseInt(k.replace(/^(frc|ftc)/,'')));
@@ -2102,7 +1731,6 @@ const Scout: React.FC<ScoutProps> = ({ currentUser }) => {
                               const _matchType = m.comp_level === 'pr' ? 'practice' : m.comp_level === 'qm' ? 'qualification' : 'elimination';
                               const scoutedNums = new Set(matchScoutsData.filter((ms: any) => ms.matchNumber === _compositeNum && ms.matchType === _matchType).map((ms: any) => ms.teamNumber));
                               const unscoutedTeams = allTeamNums.filter(n => !scoutedNums.has(n));
-                              const tbaMatchUrl = `https://www.thebluealliance.com/match/${m.key}`;
                               const youtubeLink = m.videos?.find((v: any) => v.type === 'youtube');
                               const isPast = (m.actual_time || m.time) && (m.actual_time || m.time) < Math.floor(Date.now() / 1000);
                               return (
@@ -2126,10 +1754,6 @@ const Scout: React.FC<ScoutProps> = ({ currentUser }) => {
                                         <Video size={10} /> Watch
                                       </a>
                                     )}
-                                    <a href={tbaMatchUrl} target="_blank" rel="noopener noreferrer"
-                                      className="flex items-center gap-1 px-2 py-1.5 bg-blue-600 text-white rounded-lg text-[9px] font-black hover:bg-blue-700 transition-all">
-                                      TBA {isPast && '▶'}
-                                    </a>
                                     {!isGuest && (
                                       <button
                                         onClick={() => {
@@ -2468,12 +2092,8 @@ const Scout: React.FC<ScoutProps> = ({ currentUser }) => {
             pitDisplayAlerts={pitDisplayAlerts}
             dismissedPitAlertIds={dismissedPitAlertIds}
             onDismissPitAlert={dismissPitAlert}
-            nexusData={nexusData}
-            nexusLoading={nexusLoading}
-            nexusError={nexusError}
-            nexusCountdown={nexusCountdown || null}
-            onFetchNexusData={fetchNexusData}
-            onFetchTbaData={(_key: string) => activeEvent?.toaEventKey ? fetchFirstData(activeEvent.toaEventKey) : fetchTbaData(activeEvent?.tbaEventKey || _key)}
+            onRefreshEventData={() => fetchFirstData(activeEvent)}
+            matchTemplate={matchTemplate}
             tbaMatches={tbaMatches}
             tbaLoading={tbaLoading}
             tbaRecord={tbaRecord}
@@ -2482,12 +2102,6 @@ const Scout: React.FC<ScoutProps> = ({ currentUser }) => {
             matchScoutsData={matchScoutsData}
             activeEvent={activeEvent}
             isCoachOrCaptain={isCoachOrCaptain}
-            dismissedBreaks={dismissedBreaks}
-            setDismissedBreaks={setDismissedBreaks}
-            dismissedAnnouncements={dismissedAnnouncements}
-            setDismissedAnnouncements={setDismissedAnnouncements}
-            dismissedParts={dismissedParts}
-            setDismissedParts={setDismissedParts}
             onOpenRobotByNumber={openRobotByNumber}
             onSetSelectedRobot={setSelectedRobot}
             onGenerateGeminiReport={generateGeminiReport}
@@ -3084,34 +2698,6 @@ const Scout: React.FC<ScoutProps> = ({ currentUser }) => {
               </div>
             )}
           </div>
-        ) : activeTab === 'map' ? (
-          <div className="space-y-4">
-            <PitMap
-              mapData={pitMapData}
-              loading={pitMapLoading}
-              error={pitMapError}
-              eventKey={activeEvent?.nexusPitMapKey || activeEvent?.nexusEventKey || null}
-              onRefresh={() => { const k = activeEvent?.nexusPitMapKey || activeEvent?.nexusEventKey; if (k) fetchPitMap(k); }}
-              teamNames={teamNamesMap}
-              scoutedTeams={new Set(
-                pitScouts
-                  .filter((p: any) =>
-                    p.robotName ||
-                    p.drivetrain ||
-                    p.photoUrl ||
-                    p.shooterType ||
-                    p.traversalAbility ||
-                    (p.weight > 0) ||
-                    (p.height > 0) ||
-                    p.capabilities?.length > 0 ||
-                    p.deficiencies?.length > 0 ||
-                    (p.autonomousRoutine && p.autonomousRoutine !== 'None') ||
-                    p.autoOptions?.length > 0
-                  )
-                  .map((p: any) => String(p.teamNumber))
-              )}
-            />
-          </div>
         ) : null}
 
         <DynamicScoutForm
@@ -3145,19 +2731,9 @@ const Scout: React.FC<ScoutProps> = ({ currentUser }) => {
           pitScouts={pitScouts}
         />
 
-        {nexusToast && (
-          <div className={`fixed top-6 right-6 z-[400] px-5 py-3 rounded-2xl shadow-2xl flex items-center gap-3 animate-in fade-in slide-in-from-top-2 duration-300 ${
-            nexusToast.type === 'ok' ? 'bg-green-600 text-white' : 'bg-red-600 text-white'
-          }`}>
-            {nexusToast.type === 'ok' ? <Check size={16} /> : <AlertCircle size={16} />}
-            <span className="font-black text-sm">{nexusToast.msg}</span>
-            <button onClick={() => setNexusToast(null)} className="ml-2 opacity-70 hover:opacity-100"><X size={14} /></button>
-          </div>
-        )}
-
         {showEventSettings && (
           <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[110] flex items-center justify-center p-4 animate-in fade-in duration-300">
-            <div className="bg-white dark:bg-slate-800 rounded-2xl md:rounded-[40px] w-full max-w-xl p-6 md:p-10 shadow-2xl border-t-8 border-violet-600">
+            <div className="bg-white dark:bg-slate-800 rounded-2xl md:rounded-[40px] w-full max-w-xl p-6 md:p-10 shadow-2xl border-t-8 border-teamColor">
               <div className="flex justify-between items-start mb-6 md:mb-8">
                 <div>
                   <h2 className="text-xl md:text-2xl font-black text-slate-900 dark:text-white tracking-tighter uppercase">Event Settings</h2>
@@ -3169,67 +2745,30 @@ const Scout: React.FC<ScoutProps> = ({ currentUser }) => {
               </div>
               <div className="space-y-5">
                 <div className="space-y-2">
-                  <label className="block text-[9px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">TBA Event Key <span className="text-slate-400 normal-case font-normal">(FRC)</span></label>
-                  <input value={eventSettingsForm.tbaEventKey} onChange={(e) => setEventSettingsForm({ ...eventSettingsForm, tbaEventKey: e.target.value })}
-                    placeholder="e.g. 2026azgl"
-                    className="w-full p-4 bg-slate-50 dark:bg-slate-700 border-2 border-slate-100 dark:border-slate-600 rounded-xl outline-none focus:border-teamColor transition-all font-bold text-sm" />
-                  <p className="text-[9px] text-slate-400 dark:text-slate-500 font-medium">Find your event key on thebluealliance.com</p>
-                </div>
-                <div className="space-y-2">
-                  <label className="block text-[9px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">TOA Event Key <span className="text-slate-400 normal-case font-normal">(FTC)</span></label>
-                  <input value={eventSettingsForm.toaEventKey} onChange={(e) => setEventSettingsForm({ ...eventSettingsForm, toaEventKey: e.target.value })}
-                    placeholder="e.g. 2425-FIM-AAFLI"
-                    className="w-full p-4 bg-slate-50 dark:bg-slate-700 border-2 border-slate-100 dark:border-slate-600 rounded-xl outline-none focus:border-orange-500 transition-all font-bold text-sm" />
-                  <p className="text-[9px] text-slate-400 dark:text-slate-500 font-medium">Find your event key on theorangealliance.org — enables FTC match data sync</p>
-                </div>
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <label className="block text-[9px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">FRC Nexus Event Key</label>
-                    {eventSettingsForm.tbaEventKey && eventSettingsForm.nexusEventKey !== eventSettingsForm.tbaEventKey && (
-                      <button onClick={() => { setEventSettingsForm({ ...eventSettingsForm, nexusEventKey: eventSettingsForm.tbaEventKey }); }}
-                        className="text-[9px] font-black text-violet-500 hover:text-violet-700 uppercase tracking-widest transition-colors">← Same as TBA key</button>
-                    )}
-                  </div>
-                  <div className="flex gap-2">
-                    <input value={eventSettingsForm.nexusEventKey}
-                      onChange={(e) => setEventSettingsForm({ ...eventSettingsForm, nexusEventKey: e.target.value })}
-                      placeholder="e.g. 2026azgl"
-                      className="flex-1 p-4 bg-slate-50 dark:bg-slate-700 border-2 border-slate-100 dark:border-slate-600 rounded-xl outline-none focus:border-violet-500 transition-all font-bold text-sm" />
-                    <button onClick={handleTestNexus} disabled={nexusTestStatus === 'testing'}
-                      className={`px-4 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all flex items-center gap-1.5 ${
-                        nexusTestStatus === 'ok' ? 'bg-green-600 text-white' :
-                        nexusTestStatus === 'error' ? 'bg-red-600 text-white' :
-                        nexusTestStatus === 'testing' ? 'bg-slate-200 text-slate-500' :
-                        'bg-violet-600 text-white hover:bg-violet-700'
-                      }`}>
-                      <Zap size={13} />
-                      {nexusTestStatus === 'testing' ? 'Testing...' : nexusTestStatus === 'ok' ? 'Connected!' : nexusTestStatus === 'error' ? 'Failed' : 'Test'}
-                    </button>
-                  </div>
-                  {nexusTestMsg && (
-                    <p className={`text-[9px] font-bold ml-1 ${nexusTestStatus === 'ok' ? 'text-green-600' : 'text-red-500'}`}>{nexusTestMsg}</p>
-                  )}
-                  <p className="text-[9px] text-slate-400 dark:text-slate-500 font-medium">Enables live queue countdown & match schedule from frc.nexus</p>
-                </div>
-                <div className="space-y-2">
-                  <label className="block text-[9px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">
-                    Nexus Pit Map Key <span className="text-slate-400 normal-case font-normal">(optional)</span>
-                  </label>
-                  <input value={eventSettingsForm.nexusPitMapKey}
-                    onChange={(e) => setEventSettingsForm({ ...eventSettingsForm, nexusPitMapKey: e.target.value })}
-                    placeholder="e.g. 2026cmptx"
-                    className="w-full p-4 bg-slate-50 dark:bg-slate-700 border-2 border-slate-100 dark:border-slate-600 rounded-xl outline-none focus:border-violet-500 transition-all font-bold text-sm" />
+                  <label className="block text-[9px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">FIRST Event Code</label>
+                  <input value={eventSettingsForm.eventCode} onChange={(e) => setEventSettingsForm({ eventCode: e.target.value })}
+                    placeholder="e.g. USCAFFFAQ"
+                    className="w-full p-4 bg-slate-50 dark:bg-slate-700 border-2 border-slate-100 dark:border-slate-600 rounded-xl outline-none focus:border-teamColor transition-all font-bold text-sm uppercase dark:text-white" />
                   <p className="text-[9px] text-slate-400 dark:text-slate-500 font-medium">
-                    Championships only — all divisions share one pit map stored under the parent event key (e.g. <span className="font-bold">2026cmptx</span> for Galileo/Archimedes/etc.). Leave blank for normal events.
+                    Loads the schedule, results and rankings from FIRST. Events imported with "Import FTC Event" already have this set.
                   </p>
                 </div>
+                {activeEvent?.calendarEventId ? (
+                  <p className="text-[10px] font-bold text-green-600 dark:text-green-400 flex items-center gap-1.5">
+                    <Calendar size={12} /> Linked to its calendar event — attendance is taken there.
+                  </p>
+                ) : (
+                  <p className="text-[10px] font-bold text-amber-600 dark:text-amber-400 flex items-center gap-1.5">
+                    <AlertCircle size={12} /> Not linked to a calendar event. Re-import it from FIRST to link one.
+                  </p>
+                )}
                 {eventSettingsSaveError && (
                   <p className="text-xs font-bold text-red-600 flex items-center gap-1.5">
                     <AlertCircle size={13} /> {eventSettingsSaveError}
                   </p>
                 )}
                 <button onClick={handleSaveEventSettings}
-                  className="w-full py-4 bg-violet-600 text-white font-black rounded-xl hover:bg-violet-700 shadow-lg transition-all uppercase tracking-widest text-xs flex items-center justify-center gap-2">
+                  className="w-full py-4 bg-teamColor text-white font-black rounded-xl hover:opacity-90 shadow-lg transition-all uppercase tracking-widest text-xs flex items-center justify-center gap-2">
                   <Check size={16} /> Save Settings
                 </button>
               </div>
@@ -3321,7 +2860,6 @@ const Scout: React.FC<ScoutProps> = ({ currentUser }) => {
       onManageSeasons={() => setShowSeasonManager(true)}
       seasonFilter={eventSeasonFilter}
       onSeasonFilterChange={setEventSeasonFilter}
-      nexusToast={nexusToast}
       geminiModal={geminiModal}
       copiedGemini={copiedGemini}
       onCreateEvent={() => {
@@ -3329,14 +2867,21 @@ const Scout: React.FC<ScoutProps> = ({ currentUser }) => {
         setEventForm((f: any) => ({ ...f, seasonId: f.seasonId ?? active?.id }));
         setShowEventForm(true);
       }}
+      onImportFirst={() => setShowImportModal(true)}
       onEnterEvent={enterEvent}
       onDeleteEvent={handleDeleteEvent}
       onCreateEventSubmit={handleCreateEvent}
       onCloseEventForm={() => setShowEventForm(false)}
-      onDismissNexusToast={() => setNexusToast(null)}
       onSetGeminiModal={setGeminiModal}
       onSetCopiedGemini={setCopiedGemini}
     />
+    {showImportModal && (
+      <FirstEventImportModal
+        onClose={() => setShowImportModal(false)}
+        onImported={() => fetchEvents()}
+        importedCodes={new Set(events.map((e: any) => e.eventCode).filter(Boolean))}
+      />
+    )}
     {showSeasonManager && (
       <SeasonManager
         onClose={() => setShowSeasonManager(false)}
