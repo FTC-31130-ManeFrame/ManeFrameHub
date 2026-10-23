@@ -7,7 +7,7 @@ import {
 } from "../services/firstApi";
 import { ftcSeasonFor } from "../../shared/ftcSeason";
 import { requireRoles } from "../middleware/auth";
-import { DEFAULT_TEMPLATES, type ScoutKind, type TemplateField } from "../../shared/scoutingTemplates";
+import { DEFAULT_TEMPLATES, mergeScoutData, type ScoutKind, type TemplateField } from "../../shared/scoutingTemplates";
 import { liveCompetitionEvents, localDatePT } from "../../utils/dates";
 import { getTeamTimezone } from "../services/teamTime";
 
@@ -209,17 +209,27 @@ router.post("/scout-events/:eventId/import", requireScoutManager, async (req, re
       }
     }
     if (pitData && Array.isArray(pitData)) {
+      // Every team already has a robot row once an event is imported from
+      // FIRST, so skipping existing teams would drop every transferred pit
+      // scout. Merge instead: existing answers win, blanks get filled.
       const existingPits = await storage.getPitScouts(eventId);
-      const existingTeams = new Set(existingPits.map(p => p.teamNumber));
+      const byTeam = new Map(existingPits.map(p => [p.teamNumber, p]));
       for (const ps of pitData) {
         const { id, createdAt, updatedAt, eventId: _eid, ...cleanPs } = ps;
-        if (existingTeams.has(cleanPs.teamNumber)) {
+        const existing: any = byTeam.get(cleanPs.teamNumber);
+        if (!existing) {
+          const created = await storage.createPitScout({ ...cleanPs, eventId });
+          byTeam.set(cleanPs.teamNumber, created);
+          results.robotsImported++;
+          continue;
+        }
+        const merged = mergeScoutData(existing.data || {}, cleanPs.data || {});
+        if (JSON.stringify(merged) === JSON.stringify(existing.data || {})) {
           results.robotsSkipped++;
           continue;
         }
-        await storage.createPitScout({ ...cleanPs, eventId });
+        await storage.updatePitScout(existing.id, { data: merged });
         results.robotsImported++;
-        existingTeams.add(cleanPs.teamNumber);
       }
     }
     res.status(201).json(results);

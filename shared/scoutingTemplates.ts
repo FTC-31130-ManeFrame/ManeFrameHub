@@ -62,9 +62,16 @@ export function isNumericField(f: TemplateField): boolean {
   return NUMERIC_FIELD_TYPES.includes(f.type);
 }
 
-/** A record's value for a field: the `data` blob first, then a legacy column. */
+/**
+ * A record's value for a field. When the record has a `data` blob it is the
+ * whole truth: falling back to the legacy column for a missing key would show
+ * that column's DB default (e.g. a rating of 5) as if someone had entered it.
+ * Only a record with no blob at all reads its legacy columns.
+ */
 export function fieldValue(rec: any, key: string): any {
-  return rec?.data && rec.data[key] !== undefined ? rec.data[key] : rec?.[key];
+  const data = rec?.data;
+  if (data && typeof data === 'object' && Object.keys(data).length > 0) return data[key];
+  return rec?.[key];
 }
 
 export interface FieldAggregate {
@@ -79,6 +86,86 @@ export interface FieldAggregate {
   n: number;
   showInSummary: boolean;
   rankMetric: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// Record helpers. Every view that reads scouting records goes through these
+// and the event's template, so none of them hard-codes one game's fields.
+// ---------------------------------------------------------------------------
+
+/** Keys every record carries that identify it rather than observe anything. */
+const RECORD_IDENTITY_KEYS = new Set(['teamNumber', 'teamName', 'matchNumber', 'matchType', 'alliance']);
+
+/** Whether a stored value is an answer rather than a blank. */
+export function isAnswered(v: any): boolean {
+  if (v === undefined || v === null || v === '') return false;
+  if (Array.isArray(v)) return v.length > 0;
+  if (typeof v === 'number') return !Number.isNaN(v);
+  return true;
+}
+
+/**
+ * How many observations a record holds. A robot row created by the FIRST
+ * import carries only identity, so it scores 0 — that is how "not yet pit
+ * scouted" is told apart from "scouted". An unticked Yes/No isn't counted,
+ * since an untouched form saves it as false too.
+ */
+export function observationCount(rec: any): number {
+  const data = rec?.data || {};
+  return Object.entries(data).filter(([k, v]) => !RECORD_IDENTITY_KEYS.has(k) && isAnswered(v) && v !== false).length;
+}
+
+/**
+ * Combine two records of the same robot: `primary`'s answers win, its blanks
+ * are filled from `other`, tag lists are unioned and differing notes kept.
+ */
+export function mergeScoutData(primary: Record<string, any> = {}, other: Record<string, any> = {}): Record<string, any> {
+  const out: Record<string, any> = { ...primary };
+  for (const [k, v] of Object.entries(other)) {
+    const cur = out[k];
+    if (Array.isArray(cur) && Array.isArray(v)) out[k] = Array.from(new Set([...cur, ...v]));
+    else if (k === 'notes' && typeof cur === 'string' && typeof v === 'string' && cur && v && !cur.includes(v)) out[k] = `${cur}\n\n${v}`;
+    else if (!isAnswered(cur) && isAnswered(v)) out[k] = v;
+  }
+  return out;
+}
+
+/** One value as text: Yes/No, tag lists joined, ratings shown out of their max. */
+export function formatValue(f: TemplateField | undefined, v: any): string {
+  if (v === true) return 'Yes';
+  if (v === false) return 'No';
+  if (Array.isArray(v)) return v.length ? v.join(', ') : '—';
+  if (!isAnswered(v)) return '—';
+  if (f && (f.type === 'rating' || f.type === 'slider') && typeof v === 'number') {
+    return `${v}/${f.max ?? (f.type === 'rating' ? 5 : 10)}`;
+  }
+  return String(v);
+}
+
+const observable = (fields: TemplateField[]) =>
+  fields.filter(f => !f.archived && !f.identity && f.type !== 'photo');
+
+/** "Label: value" for each answered field — used for AI reports. */
+export function describeRecord(rec: any, fields: TemplateField[]): string[] {
+  return observable(fields)
+    .map(f => [f, fieldValue(rec, f.key)] as const)
+    .filter(([, v]) => isAnswered(v))
+    .map(([f, v]) => `${f.label}: ${formatValue(f, v)}`);
+}
+
+/**
+ * The fields a record should be summarized by: the ones flagged "Summary",
+ * else the numeric and Yes/No ones.
+ */
+export function summaryFields(fields: TemplateField[], limit = 4): TemplateField[] {
+  const active = observable(fields);
+  const flagged = active.filter(f => f.showInSummary);
+  return (flagged.length ? flagged : active.filter(f => isNumericField(f) || f.type === 'boolean')).slice(0, limit);
+}
+
+/** A one-line summary of a record, e.g. "Auto Launched: 3 · Parked: Yes". */
+export function summarizeRecord(rec: any, fields: TemplateField[], limit = 4): string {
+  return summaryFields(fields, limit).map(f => `${f.label}: ${formatValue(f, fieldValue(rec, f.key))}`).join(' · ');
 }
 
 /** Aggregate every field flagged with a stat over a set of records. */

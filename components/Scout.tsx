@@ -17,7 +17,11 @@ import FirstEventImportModal from './FirstEventImportModal';
 import { ftcSeasonFor } from '../shared/ftcSeason';
 import SeasonManager from './scout/SeasonManager';
 import DynamicScoutForm from './scout/DynamicScoutForm';
-import { DEFAULT_TEMPLATES, isNumericField, type TemplateField, type ScoutKind } from '../shared/scoutingTemplates';
+import {
+  DEFAULT_TEMPLATES, isNumericField, computeAggregates, describeRecord, summarizeRecord, summaryFields,
+  observationCount, mergeScoutData, formatValue, fieldValue,
+  type TemplateField, type ScoutKind,
+} from '../shared/scoutingTemplates';
 
 // Scouting always renders from a template: the event's season template, or the
 // current game's default when the event has no season (or its season has none).
@@ -694,29 +698,23 @@ const Scout: React.FC<ScoutProps> = ({ currentUser }) => {
     const label = getLabel(tbaMatch);
     const allTeamKeys = [...(tbaMatch.alliances?.red?.team_keys || []), ...(tbaMatch.alliances?.blue?.team_keys || [])];
     let report = `# FTC Match Analysis Request: ${label}\nEvent: ${activeEvent?.name}\n\n`;
-    report += `**Red Alliance:** ${(tbaMatch.alliances?.red?.team_keys || []).map((k: string) => k.replace(/^(frc|ftc)/,'')).join(', ')}\n`;
-    report += `**Blue Alliance:** ${(tbaMatch.alliances?.blue?.team_keys || []).map((k: string) => k.replace(/^(frc|ftc)/,'')).join(', ')}\n\n`;
+    report += `**Red Alliance:** ${(tbaMatch.alliances?.red?.team_keys || []).map((k: string) => k.replace(/^ftc/, '')).join(', ')}\n`;
+    report += `**Blue Alliance:** ${(tbaMatch.alliances?.blue?.team_keys || []).map((k: string) => k.replace(/^ftc/, '')).join(', ')}\n\n`;
     report += `## Scouted Team Data\n\n`;
     for (const teamKey of allTeamKeys) {
-      const teamNum = parseInt(teamKey.replace(/^(frc|ftc)/,''));
+      const teamNum = parseInt(teamKey.replace(/^ftc/, ''));
       const isRed = tbaMatch.alliances?.red?.team_keys?.includes(teamKey);
       const pit = pitScouts.find((p: any) => p.teamNumber === teamNum);
       const teamMatches = matchScoutsData.filter((m: any) => m.teamNumber === teamNum);
-      report += `### Team ${teamNum}${pit ? ` — ${pit.teamName}` : ''} (${isRed ? 'RED' : 'BLUE'})\n`;
-      if (pit) {
-        report += `Robot: ${pit.robotName || '—'} | Drivetrain: ${pit.drivetrain || '—'} | Shooter: ${pit.shooterType || '—'} | Fuel Capacity: ${pit.fuelCapacity || '—'} | Traversal: ${pit.traversalAbility || '—'}\n`;
-        report += `Auto Options: ${pit.autoOptions?.length > 0 ? pit.autoOptions.join(', ') : 'None'}\n`;
-        report += `Ratings: Offense ${pit.offenseRating}/10, Defense ${pit.defenseRating}/10, Overall ${pit.overallRating}/10\n`;
-        if (pit.capabilities?.length > 0) report += `Capabilities: ${pit.capabilities.join(', ')}\n`;
-        if (pit.deficiencies?.length > 0) report += `Weaknesses: ${pit.deficiencies.join(', ')}\n`;
-        if (pit.notes) report += `Notes: ${pit.notes}\n`;
-      } else { report += `No pit scout data.\n`; }
+      report += `### Team ${teamNum}${pit?.teamName ? ` — ${pit.teamName}` : ''} (${isRed ? 'RED' : 'BLUE'})\n`;
+      const pitLines = pit ? describeRecord(pit, pitTemplate.fields) : [];
+      report += pitLines.length ? `Pit: ${pitLines.join(' | ')}\n` : `No pit scout data.\n`;
       if (teamMatches.length > 0) {
-        const avg = (field: string) => (teamMatches.reduce((s: number, m: any) => s + (m[field] || 0), 0) / teamMatches.length).toFixed(1);
-        report += `Match Performance (${teamMatches.length} matches): Avg Auto Fuel: ${avg('autoFuelTotal')}, Avg Teleop Fuel: ${avg('teleopFuelTotal')}, Avg Accuracy: ${avg('coralScored')}/5, Climb Rate: ${((teamMatches.filter((m: any) => m.endClimbLevel > 0).length / teamMatches.length) * 100).toFixed(0)}%\n`;
-        report += `Driving Skill: ${avg('drivingSkillRating')}/5${pit?.coreValuesRating ? `, FIRST Core Values: ${pit.coreValuesRating}/5` : ''}\n`;
-        for (const m of teamMatches.slice(-3).sort((a: any, b: any) => a.matchNumber - b.matchNumber)) {
-          report += `  M${m.matchNumber} (${m.alliance}): Auto: ${m.autoFuelTotal || 0}, Teleop: ${m.teleopFuelTotal || 0}, Accuracy: ${m.coralScored || '?'}/5, Climb L${m.endClimbLevel}${m.notes ? `, "${m.notes}"` : ''}\n`;
+        const stats = computeAggregates(teamMatches, matchTemplate.fields).filter(a => a.n > 0);
+        report += `Match Performance (${teamMatches.length} matches): ${stats.map(a => `${a.prefix ? `${a.prefix} ` : ''}${a.label} ${a.display}`).join(', ') || 'no stats configured'}\n`;
+        for (const m of [...teamMatches].sort((a: any, b: any) => a.matchNumber - b.matchNumber).slice(-3)) {
+          const notes = fieldValue(m, 'notes');
+          report += `  M${m.matchNumber} (${m.alliance}): ${summarizeRecord(m, matchTemplate.fields, 6)}${notes ? `, "${notes}"` : ''}\n`;
         }
       } else { report += `No match data.\n`; }
       const r = tbaRankings.get(teamNum);
@@ -730,20 +728,10 @@ const Scout: React.FC<ScoutProps> = ({ currentUser }) => {
   const generateRobotAIReport = () => {
     if (!selectedRobot) return;
     const r = selectedRobot;
-    let report = `# Team ${r.teamNumber} — ${r.teamName || 'Unknown Team'}\n`;
-    report += `Robot: ${r.robotName || '—'}\n\n`;
-
+    let report = `# Team ${r.teamNumber} — ${r.teamName || 'Unknown Team'}\n\n`;
     report += `## Pit Scout Data\n`;
-    report += `Drivetrain: ${r.drivetrain || '—'}\n`;
-    report += `Weight: ${r.weight ? `${r.weight} lbs` : '—'} | Speed: ${r.speed ? `${r.speed} ft/s` : '—'} | Height: ${r.height ? `${r.height}"` : '—'}\n`;
-    report += `Shooter Type: ${r.shooterType || '—'}\n`;
-    report += `Fuel Capacity: ${r.fuelCapacity > 0 ? `${r.fuelCapacity} cells` : '—'}\n`;
-    report += `Field Traversal: ${r.traversalAbility || '—'}\n`;
-    report += `Auto Routines: ${r.autoOptions?.length > 0 ? r.autoOptions.join(', ') : 'None'}\n`;
-    report += `Ratings: Offense ${r.offenseRating}/10, Defense ${r.defenseRating}/10, Overall ${r.overallRating}/10${r.coreValuesRating ? `, FIRST Core Values: ${r.coreValuesRating}/5` : ''}\n`;
-    report += `Capabilities: ${r.capabilities?.length > 0 ? r.capabilities.join(', ') : 'None'}\n`;
-    report += `Weaknesses: ${r.deficiencies?.length > 0 ? r.deficiencies.join(', ') : 'None'}\n`;
-    report += `Notes: ${r.notes || '—'}\n`;
+    const pitLines = describeRecord(r, pitTemplate.fields);
+    report += pitLines.length ? pitLines.map(l => `${l}\n`).join('') : 'Not pit scouted yet.\n';
     report += '\n';
 
     const currentEventName = activeEvent?.name || 'Current Event';
@@ -759,11 +747,11 @@ const Scout: React.FC<ScoutProps> = ({ currentUser }) => {
     const formatMatchBlock = (matches: any[], eventLabel: string) => {
       let block = `## Match History — ${eventLabel} (${matches.length} matches)\n`;
       if (matches.length > 0) {
-        const avg = (field: string) => (matches.reduce((s: number, m: any) => s + (m[field] || 0), 0) / matches.length).toFixed(1);
-        block += `Averages: Auto Fuel: ${avg('autoFuelTotal')}, Teleop Fuel: ${avg('teleopFuelTotal')}, Accuracy: ${avg('coralScored')}/5, Climb Rate: ${((matches.filter((m: any) => m.endClimbLevel > 0).length / matches.length) * 100).toFixed(0)}%\n`;
-        block += `Driving Skill: ${avg('drivingSkillRating')}/5${r.coreValuesRating ? `, FIRST Core Values: ${r.coreValuesRating}/5` : ''}, Avg Penalties: ${avg('penalties')}\n`;
+        const stats = computeAggregates(matches, matchTemplate.fields).filter(a => a.n > 0);
+        if (stats.length) block += `Stats: ${stats.map(a => `${a.prefix ? `${a.prefix} ` : ''}${a.label} ${a.display}`).join(', ')}\n`;
         for (const m of [...matches].sort((a: any, b: any) => a.matchNumber - b.matchNumber)) {
-          block += `  M${m.matchNumber} [${m.matchType || 'qualification'}] (${m.alliance}): Auto: ${m.autoFuelTotal || 0}, Teleop: ${m.teleopFuelTotal || 0}, Accuracy: ${m.coralScored || '?'}/5, Climb L${m.endClimbLevel || 0}, Drive: ${m.drivingSkillRating || '?'}/5${m.autoUsed ? `, Auto Used: "${m.autoUsed}"` : ''}${m.notes ? `, Notes: "${m.notes}"` : ''}\n`;
+          const lines = describeRecord(m, matchTemplate.fields);
+          block += `  M${m.matchNumber} [${m.matchType || 'qualification'}] (${m.alliance}): ${lines.join(', ') || '—'}\n`;
         }
       }
       return block + '\n';
@@ -794,43 +782,22 @@ const Scout: React.FC<ScoutProps> = ({ currentUser }) => {
       const filteredMatches = selectedMatchIds.size > 0
         ? allMatches.filter((m: any) => selectedMatchIds.has(m.id))
         : allMatches;
-      const slimMatches = filteredMatches.map((m: any) => ({
-        mn: m.matchNumber,
-        tn: m.teamNumber,
-        al: m.alliance === 'Red' ? 'R' : 'B',
-        as: m.autoScore,
-        ts: m.teleopScore,
-        es: m.endgameScore,
-        p: m.penalties,
-        ac: m.autoClimb ? 1 : 0,
-        ec: m.endClimbLevel,
-        cs: m.coralScored,
-        ag: m.algaeScored,
-        hp: m.humanPlayerScore,
-        dr: m.defenseRating,
-        n: m.notes || '',
-      }));
+      // v4 carries each record's full template data, so any season's fields
+      // survive the transfer. (v2/v3 encoded fixed legacy columns and silently
+      // dropped most of what scouts actually recorded.) Photos are left out —
+      // a single image would need dozens of QR frames.
+      const withoutPhotos = (data: Record<string, any> = {}) =>
+        Object.fromEntries(Object.entries(data).filter(([, v]) => !(typeof v === 'string' && v.startsWith('data:'))));
       const filteredRobots = selectedRobotIds.size > 0
         ? pitScouts.filter((r: any) => selectedRobotIds.has(r.id))
         : [];
-      const slimRobots = filteredRobots.map((r: any) => ({
-        tn: r.teamNumber,
-        tna: r.teamName || '',
-        rn: r.robotName || '',
-        dt: r.drivetrain || '',
-        w: r.weight || 0,
-        sp: r.speed || 0,
-        h: r.height || 0,
-        cap: r.capabilities || [],
-        def: r.deficiencies || [],
-        ar: r.autonomousRoutine || '',
-        n: r.notes || '',
-        or: r.offenseRating || 5,
-        dr: r.defenseRating || 5,
-        ovr: r.overallRating || 5,
-      }));
-      const payload: any = { v: 3, m: slimMatches };
-      if (slimRobots.length > 0) payload.r = slimRobots;
+      const payload: any = {
+        v: 4,
+        m: filteredMatches.map((m: any) => ({ ...withoutPhotos(m.data), matchNumber: m.matchNumber, teamNumber: m.teamNumber, matchType: m.matchType, alliance: m.alliance })),
+      };
+      if (filteredRobots.length > 0) {
+        payload.r = filteredRobots.map((r: any) => ({ ...withoutPhotos(r.data), teamNumber: r.teamNumber, teamName: r.teamName || '' }));
+      }
       const jsonStr = JSON.stringify(payload);
       const compressed = pako.deflate(new TextEncoder().encode(jsonStr));
       const base64 = btoa(String.fromCharCode(...compressed));
@@ -953,7 +920,14 @@ const Scout: React.FC<ScoutProps> = ({ currentUser }) => {
           const parsed = JSON.parse(jsonStr);
           let matchScouts: any[];
           let pitScoutsImport: any[] = [];
-          if ((parsed.v === 2 || parsed.v === 3) && Array.isArray(parsed.m)) {
+          if (parsed.v === 4 && Array.isArray(parsed.m)) {
+            matchScouts = parsed.m.map((d: any) => ({
+              data: d, matchNumber: d.matchNumber, teamNumber: d.teamNumber, matchType: d.matchType, alliance: d.alliance,
+            }));
+            pitScoutsImport = Array.isArray(parsed.r)
+              ? parsed.r.map((d: any) => ({ data: d, teamNumber: d.teamNumber, teamName: d.teamName }))
+              : [];
+          } else if ((parsed.v === 2 || parsed.v === 3) && Array.isArray(parsed.m)) {
             matchScouts = parsed.m.map(expandSlimMatch);
             if (parsed.v === 3 && Array.isArray(parsed.r)) {
               pitScoutsImport = parsed.r.map(expandSlimRobot);
@@ -1013,24 +987,8 @@ const Scout: React.FC<ScoutProps> = ({ currentUser }) => {
     return dupes;
   }, [pitScouts]);
 
-  const scorePitEntry = (ps: any): number => {
-    let s = 0;
-    if (ps.teamName) s++;
-    if (ps.robotName) s++;
-    if (ps.drivetrain) s++;
-    if (ps.traversalAbility) s++;
-    if (ps.shooterType) s++;
-    if (ps.notes) s++;
-    if (ps.photoUrl) s++;
-    if (ps.weight > 0) s++;
-    if (ps.speed > 0) s++;
-    if (ps.height > 0) s++;
-    s += (ps.capabilities?.length || 0);
-    s += (ps.deficiencies?.length || 0);
-    s += (ps.autoOptions?.length || 0);
-    return s;
-  };
-
+  // Merge duplicate robot rows for a team into the most complete one: its
+  // answers win, blanks are filled from the others, tags are unioned.
   const handleMergeDuplicates = async () => {
     if (!activeEvent || duplicateTeamNums.size === 0) return;
     const groups = new Map<number, any[]>();
@@ -1042,61 +1000,11 @@ const Scout: React.FC<ScoutProps> = ({ currentUser }) => {
     const dupeGroups = Array.from(groups.values()).filter(g => g.length > 1);
     try {
       for (const group of dupeGroups) {
-        const sorted = [...group].sort((a, b) => scorePitEntry(b) - scorePitEntry(a));
-        const primary = sorted[0];
-        const rest = sorted.slice(1);
-        const merged: any = {
-          teamNumber: primary.teamNumber,
-          teamName: primary.teamName,
-          robotName: primary.robotName,
-          drivetrain: primary.drivetrain,
-          traversalAbility: primary.traversalAbility,
-          shooterType: primary.shooterType,
-          notes: primary.notes,
-          photoUrl: primary.photoUrl,
-          weight: primary.weight,
-          speed: primary.speed,
-          height: primary.height,
-          fuelCapacity: primary.fuelCapacity,
-          autonomousRoutine: primary.autonomousRoutine,
-          offenseRating: primary.offenseRating,
-          defenseRating: primary.defenseRating,
-          overallRating: primary.overallRating,
-          coreValuesRating: primary.coreValuesRating,
-          capabilities: [...(primary.capabilities || [])],
-          deficiencies: [...(primary.deficiencies || [])],
-          autoOptions: [...(primary.autoOptions || [])],
-          scoutedBy: primary.scoutedBy,
-        };
-        for (const other of rest) {
-          if (!merged.teamName && other.teamName) merged.teamName = other.teamName;
-          if (!merged.robotName && other.robotName) merged.robotName = other.robotName;
-          if (!merged.drivetrain && other.drivetrain) merged.drivetrain = other.drivetrain;
-          if (!merged.traversalAbility && other.traversalAbility) merged.traversalAbility = other.traversalAbility;
-          if (!merged.shooterType && other.shooterType) merged.shooterType = other.shooterType;
-          if (!merged.photoUrl && other.photoUrl) merged.photoUrl = other.photoUrl;
-          if (!merged.weight && other.weight) merged.weight = other.weight;
-          if (!merged.speed && other.speed) merged.speed = other.speed;
-          if (!merged.height && other.height) merged.height = other.height;
-          if (!merged.fuelCapacity && other.fuelCapacity) merged.fuelCapacity = other.fuelCapacity;
-          if ((!merged.autonomousRoutine || merged.autonomousRoutine === 'None') && other.autonomousRoutine && other.autonomousRoutine !== 'None') {
-            merged.autonomousRoutine = other.autonomousRoutine;
-          }
-          if (other.notes) {
-            if (!merged.notes) {
-              merged.notes = other.notes;
-            } else if (merged.notes !== other.notes) {
-              merged.notes = merged.notes + '\n\n' + other.notes;
-            }
-          }
-          merged.capabilities = Array.from(new Set([...merged.capabilities, ...(other.capabilities || [])]));
-          merged.deficiencies = Array.from(new Set([...merged.deficiencies, ...(other.deficiencies || [])]));
-          merged.autoOptions = Array.from(new Set([...merged.autoOptions, ...(other.autoOptions || [])]));
-        }
-        await api.scout.updatePitScout(primary.id, merged);
-        for (const o of rest) {
-          await api.scout.deletePitScout(o.id);
-        }
+        const [primary, ...rest] = [...group].sort((a, b) => observationCount(b) - observationCount(a));
+        let data = { ...(primary.data || {}) };
+        for (const other of rest) data = mergeScoutData(data, other.data || {});
+        await api.scout.updatePitScout(primary.id, { data, teamName: primary.teamName || rest.find(o => o.teamName)?.teamName });
+        for (const o of rest) await api.scout.deletePitScout(o.id);
       }
       await fetchEventData(activeEvent.id);
     } catch (err) {
@@ -1108,8 +1016,7 @@ const Scout: React.FC<ScoutProps> = ({ currentUser }) => {
   const filteredPitScouts = pitScouts.filter(ps =>
     !searchTerm ||
     ps.teamNumber.toString().includes(searchTerm) ||
-    ps.teamName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    ps.robotName?.toLowerCase().includes(searchTerm.toLowerCase())
+    ps.teamName?.toLowerCase().includes(searchTerm.toLowerCase())
   ).sort((a, b) => {
     if (robotSort === 'name') {
       return (a.teamName || '').localeCompare(b.teamName || '');
@@ -1155,7 +1062,7 @@ const Scout: React.FC<ScoutProps> = ({ currentUser }) => {
       const merged: any = { ...entries[0], data: { ...(entries[0].data || {}) }, _scoutCount: entries.length };
       for (const f of numericFields) {
         const vals = entries
-          .map(e => (e.data && e.data[f.key] !== undefined ? e.data[f.key] : e[f.key]))
+          .map(e => fieldValue(e, f.key))
           .filter(v => typeof v === 'number');
         if (vals.length) {
           const a = Math.round(vals.reduce((s, v) => s + v, 0) / vals.length);
@@ -1163,7 +1070,6 @@ const Scout: React.FC<ScoutProps> = ({ currentUser }) => {
           merged[f.key] = a;
         }
       }
-      merged.autoClimb = entries.some(e => e.autoClimb);
       return merged;
     });
   }, [selectedRobot, matchScoutsData, matchTemplate]);
@@ -1374,27 +1280,38 @@ const Scout: React.FC<ScoutProps> = ({ currentUser }) => {
                   onClick={() => setSelectedRobot(ps)}
                   className="bg-white dark:bg-slate-800 rounded-2xl md:rounded-[32px] border-2 border-slate-100 dark:border-slate-700 p-5 md:p-6 hover:border-teamColor/30 transition-all cursor-pointer"
                 >
-                  {ps.photoUrl && (
-                    <div className="w-full h-32 rounded-xl overflow-hidden mb-3 bg-slate-100 dark:bg-slate-700">
-                      <img src={ps.photoUrl} alt={`Team ${ps.teamNumber}`} className="w-full h-full object-cover" />
-                    </div>
-                  )}
+                  {(() => {
+                    const photo = fieldValue(ps, 'photoUrl');
+                    return photo ? (
+                      <div className="w-full h-32 rounded-xl overflow-hidden mb-3 bg-slate-100 dark:bg-slate-700">
+                        <img src={photo} alt={`Team ${ps.teamNumber}`} className="w-full h-full object-cover" />
+                      </div>
+                    ) : null;
+                  })()}
                   <div className="flex items-center justify-between mb-3">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 bg-teamColor/10 text-teamColor rounded-xl flex items-center justify-center font-black text-sm">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="w-10 h-10 bg-teamColor/10 text-teamColor rounded-xl flex items-center justify-center font-black text-sm flex-shrink-0">
                         {ps.teamNumber}
                       </div>
                       <div className="min-w-0">
                         <p className="text-sm font-black text-slate-900 dark:text-white truncate">{ps.teamName || `Team ${ps.teamNumber}`}</p>
-                        <p className="text-[10px] text-slate-400 dark:text-slate-500 font-bold truncate">{ps.robotName || 'Unnamed'} • {ps.drivetrain || '—'}</p>
+                        <p className="text-[10px] text-slate-400 dark:text-slate-500 font-bold truncate">
+                          {observationCount(ps) > 0 ? (fieldValue(ps, 'drivetrain') || 'Pit scouted') : 'Not pit scouted yet'}
+                        </p>
                       </div>
                     </div>
                   </div>
-                  <div className="flex gap-2">
-                    <span className="px-2 py-1 bg-teamColor/5 text-teamColor rounded-lg text-[9px] font-black">OFF {ps.offenseRating}</span>
-                    <span className="px-2 py-1 bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-300 rounded-lg text-[9px] font-black">DEF {ps.defenseRating}</span>
-                    <span className="px-2 py-1 bg-green-50 dark:bg-green-900/30 text-green-600 dark:text-green-300 rounded-lg text-[9px] font-black">OVR {ps.overallRating}</span>
-                  </div>
+                  {observationCount(ps) > 0 ? (
+                    <div className="flex flex-wrap gap-2">
+                      {summaryFields(pitTemplate.fields, 6).filter(f => fieldValue(ps, f.key) !== undefined && fieldValue(ps, f.key) !== '').slice(0, 3).map(f => (
+                        <span key={f.key} className="px-2 py-1 bg-teamColor/5 text-teamColor rounded-lg text-[9px] font-black truncate max-w-full" title={f.label}>
+                          {f.label}: {formatValue(f, fieldValue(ps, f.key))}
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    <span className="px-2 py-1 bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400 rounded-lg text-[9px] font-black">Needs pit scouting</span>
+                  )}
                 </div>
               ))}
             </div>
@@ -1534,7 +1451,7 @@ const Scout: React.FC<ScoutProps> = ({ currentUser }) => {
                 const redKeys: string[] = m.alliances?.red?.team_keys || [];
                 const blueKeys: string[] = m.alliances?.blue?.team_keys || [];
                 const renderTeamBtn = (teamKey: string, alliance: 'Red' | 'Blue') => {
-                  const teamNum = parseInt(teamKey.replace(/^(frc|ftc)/,''));
+                  const teamNum = parseInt(teamKey.replace(/^ftc/, ''));
                   const isOurTeam = teamNum === teamNumber;
                   const alreadyScouted = matchScoutsData.some((ms: any) => ms.matchNumber === compositeNum && ms.matchType === matchType && ms.teamNumber === teamNum);
                   const claimKey = `${m.key}:${teamNum}`;
@@ -1643,7 +1560,7 @@ const Scout: React.FC<ScoutProps> = ({ currentUser }) => {
                 const allTeamNums = [
                   ...(m.alliances?.red?.team_keys || []),
                   ...(m.alliances?.blue?.team_keys || []),
-                ].map((k: string) => parseInt(k.replace(/^(frc|ftc)/,'')));
+                ].map((k: string) => parseInt(k.replace(/^ftc/, '')));
                 if (allTeamNums.length === 0) return false;
                 const isElim = m.comp_level && m.comp_level !== 'qm' && m.comp_level !== 'pr';
                 const compositeNum = isElim && m.set_number > 0
@@ -1663,9 +1580,9 @@ const Scout: React.FC<ScoutProps> = ({ currentUser }) => {
                 tbaMatches.flatMap((m: any) => [
                   ...(m.alliances?.red?.team_keys || []),
                   ...(m.alliances?.blue?.team_keys || []),
-                ]).map((k: string) => parseInt(k.replace(/^(frc|ftc)/,'')))
+                ]).map((k: string) => parseInt(k.replace(/^ftc/, '')))
               );
-              const pitScoutedNums = new Set(pitScouts.map((p: any) => p.teamNumber));
+              const pitScoutedNums = new Set(pitScouts.filter((p: any) => observationCount(p) > 0).map((p: any) => p.teamNumber));
               const unscoutedRobots = [...allTBATeamNums].filter(n => !pitScoutedNums.has(n)).sort((a, b) => a - b);
 
               const getMatchLabel = (m: any) => {
@@ -1725,7 +1642,7 @@ const Scout: React.FC<ScoutProps> = ({ currentUser }) => {
                           <p className="text-[10px] text-amber-700 dark:text-amber-300 font-medium mb-3">Every match listed has at least one team with no match scout entry.</p>
                           <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
                             {unscoutedMatches.map((m: any) => {
-                              const allTeamNums = [...(m.alliances?.red?.team_keys || []), ...(m.alliances?.blue?.team_keys || [])].map((k: string) => parseInt(k.replace(/^(frc|ftc)/,'')));
+                              const allTeamNums = [...(m.alliances?.red?.team_keys || []), ...(m.alliances?.blue?.team_keys || [])].map((k: string) => parseInt(k.replace(/^ftc/, '')));
                               const _isElim = m.comp_level && m.comp_level !== 'qm' && m.comp_level !== 'pr';
                               const _compositeNum = _isElim && m.set_number > 0 ? m.set_number * 10 + (m.match_number || 1) : (m.match_number || 1);
                               const _matchType = m.comp_level === 'pr' ? 'practice' : m.comp_level === 'qm' ? 'qualification' : 'elimination';
@@ -1743,7 +1660,7 @@ const Scout: React.FC<ScoutProps> = ({ currentUser }) => {
                                     <div className="min-w-0">
                                       <p className="text-[10px] font-bold text-slate-700 truncate">Missing: <span className="text-amber-700 font-black">{unscoutedTeams.join(', ')}</span></p>
                                       <p className="text-[9px] text-slate-400 dark:text-slate-500 font-medium hidden sm:block">
-                                        🔴 {(m.alliances?.red?.team_keys || []).map((k: string) => k.replace(/^(frc|ftc)/,'')).join(' ')} vs 🔵 {(m.alliances?.blue?.team_keys || []).map((k: string) => k.replace(/^(frc|ftc)/,'')).join(' ')}
+                                        🔴 {(m.alliances?.red?.team_keys || []).map((k: string) => k.replace(/^ftc/, '')).join(' ')} vs 🔵 {(m.alliances?.blue?.team_keys || []).map((k: string) => k.replace(/^ftc/, '')).join(' ')}
                                       </p>
                                     </div>
                                   </div>
@@ -1819,7 +1736,7 @@ const Scout: React.FC<ScoutProps> = ({ currentUser }) => {
                         : (m.match_number || 1);
                       const matchType = m.comp_level === 'qm' ? 'qualification' : 'elimination';
                       return opponentKeys
-                        .map((k: string) => parseInt(k.replace(/^(frc|ftc)/,'')))
+                        .map((k: string) => parseInt(k.replace(/^ftc/, '')))
                         .filter(n => n !== teamNumber)
                         .filter(n => !pitScoutedNums.has(n))
                         .filter(n => !matchScoutsData.some((ms: any) => ms.matchNumber === compositeNum && ms.matchType === matchType && ms.teamNumber === n))
@@ -1896,7 +1813,7 @@ const Scout: React.FC<ScoutProps> = ({ currentUser }) => {
                         {upcoming.slice(0, 8).map((m: any) => {
                           const claim = matchClaims[m.key];
                           const isMine = claim?.userId === parseInt(currentUser.id);
-                          const allTeams = [...(m.alliances?.red?.team_keys || []), ...(m.alliances?.blue?.team_keys || [])].map((k: string) => parseInt(k.replace(/^(frc|ftc)/,'')));
+                          const allTeams = [...(m.alliances?.red?.team_keys || []), ...(m.alliances?.blue?.team_keys || [])].map((k: string) => parseInt(k.replace(/^ftc/, '')));
                           const time = m.predicted_time || m.time;
                           return (
                             <div key={m.key} className={`flex items-center justify-between p-3 rounded-xl border-2 ${isMine ? 'border-green-300 dark:border-green-700 bg-green-50 dark:bg-green-900/30' : claim ? 'border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-700' : 'border-slate-100 dark:border-slate-600 bg-white dark:bg-slate-700 hover:border-teamColor/30 hover:bg-teamColor/5'} transition-all`}>
@@ -1904,7 +1821,7 @@ const Scout: React.FC<ScoutProps> = ({ currentUser }) => {
                                 <span className="px-2 py-1 bg-slate-900 text-white rounded-lg text-[9px] font-black uppercase flex-shrink-0">{getMatchLabel(m)}</span>
                                 <div className="min-w-0">
                                   <p className="text-[10px] font-bold text-slate-600 truncate">
-                                    🔴 {(m.alliances?.red?.team_keys || []).map((k: string) => k.replace(/^(frc|ftc)/,'')).join(', ')} vs 🔵 {(m.alliances?.blue?.team_keys || []).map((k: string) => k.replace(/^(frc|ftc)/,'')).join(', ')}
+                                    🔴 {(m.alliances?.red?.team_keys || []).map((k: string) => k.replace(/^ftc/, '')).join(', ')} vs 🔵 {(m.alliances?.blue?.team_keys || []).map((k: string) => k.replace(/^ftc/, '')).join(', ')}
                                   </p>
                                   {claim && (
                                     <p className={`text-[9px] font-black ${isMine ? 'text-green-600' : 'text-slate-400'}`}>
@@ -1976,22 +1893,15 @@ const Scout: React.FC<ScoutProps> = ({ currentUser }) => {
                         <div>
                           <p className="text-sm font-black text-slate-900 dark:text-white">Team {m.teamNumber}</p>
                           <p className="text-[10px] text-slate-400 dark:text-slate-500 font-bold">
-                            Auto: {m.autoFuelTotal || 0} | Teleop: {m.teleopFuelTotal || 0} | Accuracy: {'★'.repeat(Math.min(m.coralScored || 0, 5))} | Pen: -{m.penalties}
+                            {summarizeRecord(m, matchTemplate.fields) || '—'}
                           </p>
-                          {m.autoUsed && <p className="text-[9px] text-blue-500 font-bold">Auto: {m.autoUsed}</p>}
-                          {(currentUser.role === 'Coach' || currentUser.role === 'TeamCaptain') && m.scoutedByName && (
+                          {fieldValue(m, 'autoUsed') && <p className="text-[9px] text-blue-500 font-bold">Auto: {fieldValue(m, 'autoUsed')}</p>}
+                          {isCoachOrCaptain && m.scoutedByName && (
                             <p className="text-[9px] text-slate-400 dark:text-slate-500 font-bold mt-0.5">Scouted by <span className="text-slate-600 dark:text-slate-400">{m.scoutedByName}</span></p>
                           )}
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
-                        <div className="text-right hidden sm:block">
-                          {m.drivingSkillRating > 0 && <p className="text-[9px] text-slate-400 dark:text-slate-500 font-bold">Drive: {'★'.repeat(Math.min(m.drivingSkillRating || 0, 5))}</p>}
-                        </div>
-                        <div className="text-right">
-                          <p className="text-[9px] text-slate-400 dark:text-slate-500 font-bold">Fuel</p>
-                          <p className="text-base font-black text-slate-900 dark:text-white">{(m.autoFuelTotal || 0) + (m.teleopFuelTotal || 0)}</p>
-                        </div>
                         {!isGuest && (
                           <div className="flex gap-1">
                             <button onClick={() => openEditMatch(m)} className="p-2 bg-slate-100 dark:bg-slate-700 rounded-lg hover:bg-slate-200 transition-all text-slate-500 dark:text-slate-400 text-[10px] font-black">Edit</button>
@@ -2002,7 +1912,7 @@ const Scout: React.FC<ScoutProps> = ({ currentUser }) => {
                         )}
                       </div>
                     </div>
-                    {m.notes && <p className="text-[10px] text-slate-500 mt-2 pl-12 font-medium">{m.notes}</p>}
+                    {fieldValue(m, 'notes') && <p className="text-[10px] text-slate-500 mt-2 pl-12 font-medium">{fieldValue(m, 'notes')}</p>}
                   </div>
                 ))}
               </div>
@@ -2024,7 +1934,7 @@ const Scout: React.FC<ScoutProps> = ({ currentUser }) => {
                             className="p-3 bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-700 rounded-xl cursor-pointer hover:bg-red-100 dark:hover:bg-red-900/50 transition-all"
                           >
                             <p className="text-sm font-black text-slate-900 dark:text-white">Team {m.teamNumber}</p>
-                            <p className="text-[9px] text-slate-500 dark:text-slate-400 font-bold">{(m.autoFuelTotal || 0) + (m.teleopFuelTotal || 0)} fuel {m.coralScored > 0 ? '★'.repeat(Math.min(m.coralScored || 0, 5)) : ''}</p>
+                            <p className="text-[9px] text-slate-500 dark:text-slate-400 font-bold truncate">{summarizeRecord(m, matchTemplate.fields, 2) || '—'}</p>
                           </div>
                         )) : (
                           <p className="text-[10px] text-slate-400 dark:text-slate-500 font-bold p-3">No robots scouted</p>
@@ -2039,7 +1949,7 @@ const Scout: React.FC<ScoutProps> = ({ currentUser }) => {
                             className="p-3 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-700 rounded-xl cursor-pointer hover:bg-blue-100 transition-all"
                           >
                             <p className="text-sm font-black text-slate-900 dark:text-white">Team {m.teamNumber}</p>
-                            <p className="text-[9px] text-slate-500 dark:text-slate-400 font-bold">{(m.autoFuelTotal || 0) + (m.teleopFuelTotal || 0)} fuel {m.coralScored > 0 ? '★'.repeat(Math.min(m.coralScored || 0, 5)) : ''}</p>
+                            <p className="text-[9px] text-slate-500 dark:text-slate-400 font-bold truncate">{summarizeRecord(m, matchTemplate.fields, 2) || '—'}</p>
                           </div>
                         )) : (
                           <p className="text-[10px] text-slate-400 dark:text-slate-500 font-bold p-3">No robots scouted</p>
