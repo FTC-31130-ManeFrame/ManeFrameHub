@@ -2,8 +2,6 @@ import { Router } from "express";
 import { storage } from "../storage";
 import { requireRoles } from "../middleware/auth";
 import { COACH_CAPTAIN, getUserRoles, hasAnyRole } from "../helpers";
-import { liveCompetitionEvents, localDatePT } from "../../utils/dates";
-import { getTeamTimezone } from "../services/teamTime";
 
 const router = Router();
 
@@ -72,37 +70,17 @@ router.get("/competition-checkins", async (req, res) => {
   }
 });
 
-router.post("/competition-checkins/check-in", async (req, res) => {
-  try {
-    const userId = parseInt(req.body.userId);
-    const eventId = parseInt(req.body.eventId);
-    const event = await storage.getScoutEvent(eventId);
-    const today = localDatePT(new Date(), await getTeamTimezone());
-    if (!event || !liveCompetitionEvents([event], today).length) {
-      return res.status(400).json({ error: "This competition is not active for attendance" });
-    }
-    const open = await storage.getOpenTimeEntryForScoutEvent(userId, eventId);
-    if (open) {
-      return res.status(400).json({ error: "Already checked in to this event" });
-    }
-    const entry = await storage.createTimeEntry({
-      userId,
-      scoutEventId: eventId,
-      kind: "competition",
-      checkInAt: new Date(),
-      status: "checked_in",
-    } as any);
-    await storage.createTimeEntryAudit({
-      entryId: entry.id,
-      actorId: userId,
-      actionType: "check_in",
-      newValues: { status: "checked_in", checkInAt: entry.checkInAt },
-    });
-    res.status(201).json(toApi(entry));
-  } catch (error) {
-    console.error("Error checking in to competition:", error);
-    res.status(500).json({ error: "Failed to check in" });
-  }
+// Competition attendance now runs through the competition's calendar event
+// (sign-up, roster check-in, self clock-in), which the FIRST import links to
+// each scouting event. Two independent check-ins for one competition let a
+// student be clocked in twice and counted twice in the hours ledger, so new
+// sessions are refused here. Check-out, approve and reject stay so any
+// session opened before this change can still be closed.
+const MOVED_TO_CALENDAR =
+  "Competition attendance has moved to the competition's calendar event. Clock in from Time, or ask a coach to check you in from the event roster.";
+
+router.post("/competition-checkins/check-in", (_req, res) => {
+  res.status(410).json({ error: MOVED_TO_CALENDAR });
 });
 
 router.post("/competition-checkins/:id/check-out", async (req, res) => {
@@ -178,40 +156,8 @@ router.post("/competition-checkins/:id/reject", requireRoles(...COACH_CAPTAIN), 
   }
 });
 
-router.post("/competition-checkins/manual-add", requireRoles(...COACH_CAPTAIN), async (req, res) => {
-  try {
-    const { userId, eventId, minutes, notes } = req.body;
-    if (!userId || !eventId || !minutes) {
-      return res.status(400).json({ error: "userId, eventId, and minutes are required" });
-    }
-    const coachId = req.userId!;
-    const now = new Date();
-    const entry = await storage.createTimeEntry({
-      userId: parseInt(userId),
-      scoutEventId: parseInt(eventId),
-      kind: "competition",
-      checkInAt: now,
-      checkOutAt: now,
-      status: "completed",
-      roundedMinutes: parseInt(minutes),
-      notes: notes || "Manually added by coach",
-      checkOutConfirmedBy: coachId,
-      checkOutConfirmedAt: now,
-    } as any);
-    await storage.createTimeEntryAudit({
-      entryId: entry.id,
-      actorId: coachId,
-      actionType: "manual_add",
-      newValues: { status: "completed", roundedMinutes: entry.roundedMinutes, notes: entry.notes, userId: entry.userId },
-    });
-    res.status(201).json(toApi(entry));
-  } catch (error: any) {
-    if (error?.code === "23505") {
-      return res.status(409).json({ error: "An entry already exists for this member at this exact time" });
-    }
-    console.error("Error manually adding competition checkin:", error);
-    res.status(500).json({ error: "Failed to add manual checkin" });
-  }
+router.post("/competition-checkins/manual-add", requireRoles(...COACH_CAPTAIN), (_req, res) => {
+  res.status(410).json({ error: MOVED_TO_CALENDAR });
 });
 
 router.get("/competition-checkins/:id/audit", async (req, res) => {

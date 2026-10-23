@@ -288,25 +288,6 @@ export const api = {
     delete: (eventId: number, id: number, requesterId: number) =>
       apiRequest<void>(`/scout-events/${eventId}/assignments/${id}?requesterId=${requesterId}`, { method: 'DELETE' }),
   },
-  competitionCheckins: {
-    listByEvent: (eventId: number) => apiRequest<any[]>(`/competition-checkins?eventId=${eventId}`),
-    listByUser: (userId: number) => apiRequest<any[]>(`/competition-checkins?userId=${userId}`),
-    checkIn: (userId: number, eventId: number) =>
-      apiRequest<any>('/competition-checkins/check-in', { method: 'POST', body: JSON.stringify({ userId, eventId }) }),
-    checkOut: (id: number) =>
-      apiRequest<any>(`/competition-checkins/${id}/check-out`, { method: 'POST', body: JSON.stringify({}) }),
-    approve: (id: number, coachId: number, roundedMinutes?: number) =>
-      apiRequest<any>(`/competition-checkins/${id}/approve`, { method: 'POST', body: JSON.stringify({ coachId, roundedMinutes }) }),
-    reject: (id: number, coachId: number) =>
-      apiRequest<any>(`/competition-checkins/${id}/reject`, { method: 'POST', body: JSON.stringify({ coachId }) }),
-    manualAdd: (coachId: number, userId: number, eventId: number, minutes: number, notes?: string) =>
-      apiRequest<any>('/competition-checkins/manual-add', { method: 'POST', body: JSON.stringify({ coachId, userId, eventId, minutes, notes }) }),
-    update: (id: number, actorId: number, data: any) =>
-      apiRequest<any>(`/competition-checkins/${id}`, { method: 'PUT', body: JSON.stringify({ actorId, ...data }) }),
-    delete: (id: number, actorId: number) =>
-      apiRequest<void>(`/competition-checkins/${id}?actorId=${actorId}`, { method: 'DELETE' }),
-    getAudit: (checkinId: number) => apiRequest<any[]>(`/competition-checkins/${checkinId}/audit`),
-  },
   fullscreenAlerts: {
     list: (activeOnly = false) => apiRequest<any[]>(`/fullscreen-alerts${activeOnly ? '?active=true' : ''}`),
     create: (data: any) =>
